@@ -26,6 +26,7 @@ These should be English-first.
 | Path | Status | Notes |
 |---|---|---|
 | `CLAUDE.md` | canonical | Main AI constitution and project map |
+| `CODE_MAP.md` | canonical | Module navigation map (where-to-look only; no rules or methods) |
 | `AGENTS.md` | redirect | Must contain only `CLAUDE.md` |
 | `GEMINI.md` | redirect | Must contain only `CLAUDE.md` |
 | `.claude/commands/*.md` | command docs | Slash-command behavior |

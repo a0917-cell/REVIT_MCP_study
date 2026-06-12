@@ -39,6 +39,10 @@ These counts must be derived from source, not copied by memory.
 
 When these numbers change, update `CLAUDE.md`, `README.md`, `README.zh-TW.md`, `docs/DOCUMENT_AUDIENCE_INVENTORY.md`, and any public site copy that makes grand-total claims. Then run `scripts/verify-qaqc.ps1 -SkipBuild -SkipDeploy`.
 
+## Navigation
+
+Before locating code for any task, read `CODE_MAP.md` (module map: which directory owns which workflow area, and the TS-tool ↔ C#-command pairing). It answers "where to look" only; rules stay here, methods stay in `domain/*.md`.
+
 ## Session Start Protocol
 
 At the start of a session, read the latest project log entry if available:
