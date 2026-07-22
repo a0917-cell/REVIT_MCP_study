@@ -17,6 +17,20 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# ============================================================================
+# DEPRECATED 2026-07-22 — deploys to %APPDATA% (Roaming) = ORPHAN (Revit loads
+# from %ProgramData%); also copies only a partial DLL bundle. Use instead:
+#   pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023
+# Details: scripts\DEPRECATED-installers.md
+# To run this legacy installer anyway: set $env:ALLOW_DEPRECATED_INSTALL = 1
+# ============================================================================
+if (-not $env:ALLOW_DEPRECATED_INSTALL) {
+    Write-Host 'DEPRECATED installer (deploys to Roaming orphan + partial bundle).' -ForegroundColor Red
+    Write-Host 'Use: pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023' -ForegroundColor Yellow
+    Write-Host 'See scripts\DEPRECATED-installers.md . Override: $env:ALLOW_DEPRECATED_INSTALL = 1' -ForegroundColor Yellow
+    exit 1
+}
+
 # 設定編碼為 UTF-8 with BOM，解決中文亂碼問題
 $OutputEncoding = [System.Text.Encoding]::UTF8
 

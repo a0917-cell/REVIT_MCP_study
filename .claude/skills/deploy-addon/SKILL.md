@@ -4,6 +4,12 @@ description: Deploy the built RevitMCP.dll to the correct Revit Add-ins folder f
 user-invocable: true
 ---
 
+> ⛔ **DEPRECATED 2026-07-22.** This skill deploys to `%APPDATA%` (Roaming) — an **orphan**;
+> Revit loads from `%ProgramData%`. It also copies only a partial DLL bundle. Use instead:
+> `pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023`
+> (builds + deploys the full 13-DLL bundle to ProgramData, won't kill Revit, preserves the
+> deployed `.addin` GUID). See `scripts/DEPRECATED-installers.md`.
+
 Deploy `RevitMCP.dll` to the Revit Add-ins directory for the selected version.
 
 ## Platform Check
