@@ -90,6 +90,9 @@ namespace RevitMCP.Core
                         result = GetElementInfo(parameters);
                         break;
                     
+                    case "delete_question_mark_tags":
+                        result = DeleteQuestionMarkTags(parameters);
+                        break;
                     case "delete_element":
                         result = DeleteElement(parameters);
                         break;
@@ -616,6 +619,12 @@ namespace RevitMCP.Core
                     case "clear_previous_annotations":
                         result = ClearPreviousAnnotations(parameters);
                         break;
+
+                    // === 結構構架自動端點對齊/切齊 ===
+                    case "align_structural_framing":
+                        result = AlignStructuralFraming(parameters);
+                        break;
+
 
 #if REVIT2024_OR_GREATER
                     case "grade_toposolid_to_floors":
@@ -2855,6 +2864,10 @@ namespace RevitMCP.Core
                         { "ElementId", elem.Id.GetIdValue() },
                         { "Name", elem.Name ?? "" }
                     };
+                    if (elem is IndependentTag tagObj)
+                    {
+                        item["TagText"] = tagObj.TagText ?? "";
+                    }
 
                     if (returnFields != null)
                     {
