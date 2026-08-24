@@ -651,6 +651,20 @@ function Get-ToolCount {
     return $hits.Count
 }
 
+function Get-RegisteredToolNames {
+    # Same evaluation path as Get-ToolCount, but returns the names themselves so
+    # 7-13 can cross-reference them against the C# dispatcher. $null on failure
+    # (unlike Get-ToolCount, there is no meaningful regex fallback for names --
+    # the caller must Skip rather than guess).
+    $nodeScript = "import('./MCP-Server/build/tools/index.js').then(m=>{console.log(JSON.stringify(m.registerRevitTools().map(t=>t.name)))}).catch(()=>process.exit(2))"
+    Push-Location $projectRoot
+    $result = & node --input-type=module -e $nodeScript 2>$null
+    $exit = $LASTEXITCODE
+    Pop-Location
+    if ($exit -ne 0 -or -not $result) { return $null }
+    try { return @($result | ConvertFrom-Json) } catch { return $null }
+}
+
 function Get-DomainCount {
     # All domain/*.md including meta — single grand total
     $rootCount = (Get-ChildItem -Path "$projectRoot\domain" -Filter "*.md" -ErrorAction SilentlyContinue |
@@ -1076,6 +1090,63 @@ else {
     Write-Check "Tracked .agents/skills mirrors match their sources ($mirrorChecked checked)" ($mirrorProblems.Count -eq 0) `
         $(if ($mirrorProblems.Count -gt 0) { "$($mirrorProblems.Count) problem(s). Re-copy the source over the mirror, or drop the mirror from git." } else { "" })
     if ($mirrorProblems.Count -gt 0) { $mirrorProblems | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
+}
+
+# 7-13: Tool -> C# handler cross-reference
+#
+# A tool can be fully registered (schema in MCP-Server/src/tools/*.ts, passes 9-1's annotation
+# checks, counted correctly by 7-1) and still be dead on arrival: MCP/Core/CommandExecutor.cs
+# dispatches on request.CommandName via a switch with no default case handler for it, so every
+# call throws NotImplementedException. This has already happened twice in this repo
+# (check_sanitary_fixture_requirements, renumber_rooms_by_level shipped with a Claude skill
+# teaching an AI client to call it) and none of the existing checks would have caught it --
+# 7-1 counts tools, it does not resolve them.
+#
+# Two things this check must get right or it becomes noise the next commit gets ignored on:
+#   1. C# case labels live in more than just CommandExecutor.cs -- structural, curtain-wall,
+#      dimension etc. each have their own case blocks in MCP/Core/Commands/*.cs partials, all
+#      contributing to the same switch. Scan every *.cs under MCP/, not just the main file.
+#   2. MCP-Server/src/tools/revit-tools.ts remaps a few tool names before they reach C# (e.g.
+#      query_elements_with_filter -> query_elements) -- checking the raw tool name against the
+#      C# case set would misreport that remap as an orphan. Parse the remap out of the bridge
+#      file itself rather than hardcoding it, so a new remap added later is picked up for free.
+Write-Host ""
+Write-Host "  7-13. Tool -> C# handler cross-reference:" -ForegroundColor Cyan
+$registeredTools = Get-RegisteredToolNames
+if (-not $registeredTools) {
+    Write-Skip "Tool -> C# handler cross-reference" "Built registry unavailable - run npm run build in MCP-Server first"
+}
+else {
+    $csHandlers = New-Object 'System.Collections.Generic.HashSet[string]'
+    $csFiles = Get-ChildItem -Path (Join-Path $projectRoot 'MCP') -Recurse -Filter '*.cs' -File -ErrorAction SilentlyContinue
+    foreach ($f in $csFiles) {
+        $text = Read-FileText $f.FullName
+        if (-not $text) { continue }
+        foreach ($m in [regex]::Matches($text, '(?m)^\s*case\s*"([a-z0-9_-]+)"\s*:')) {
+            [void]$csHandlers.Add($m.Groups[1].Value)
+        }
+    }
+
+    $bridgeRemap = @{}
+    $bridgePath = Join-Path $projectRoot 'MCP-Server\src\tools\revit-tools.ts'
+    $bridgeText = Read-FileText $bridgePath
+    if ($bridgeText) {
+        foreach ($m in [regex]::Matches($bridgeText, 'toolName\s*===\s*"([a-z0-9_-]+)"\s*\?\s*"([a-z0-9_-]+)"')) {
+            $bridgeRemap[$m.Groups[1].Value] = $m.Groups[2].Value
+        }
+    }
+
+    $orphans = @()
+    foreach ($name in $registeredTools) {
+        $target = if ($bridgeRemap.ContainsKey($name)) { $bridgeRemap[$name] } else { $name }
+        if (-not $csHandlers.Contains($target)) {
+            $orphans += $(if ($target -ne $name) { "$name (remapped to $target)" } else { $name })
+        }
+    }
+
+    Write-Check "All $($registeredTools.Count) registered tools resolve to a case handler" ($orphans.Count -eq 0) `
+        $(if ($orphans.Count -gt 0) { "$($orphans.Count) orphan(s) - schema exists but MCP/Core/CommandExecutor.cs (or a Commands/*.cs partial) has no matching case, so every call throws NotImplementedException. Add the handler, or remove the tool definition." } else { "" })
+    if ($orphans.Count -gt 0) { $orphans | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
 }
 
 # ─────────────────────────────────────────────
