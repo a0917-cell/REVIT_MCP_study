@@ -18,15 +18,18 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# DEPRECATED 2026-07-22 — deploys to %APPDATA% (Roaming) = ORPHAN (Revit loads
-# from %ProgramData%); also copies only a partial DLL bundle. Use instead:
-#   pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023
+# DEPRECATED 2026-07-22 — two defects in this revision of the installer:
+#   1. It deploys to %APPDATA%\Autodesk\Revit\Addins\<ver>\ (per-user). If a
+#      machine-wide manifest also exists at
+#      %ProgramData%\Autodesk\Revit\Addins\<ver>\RevitMCP.addin, Revit loads THAT
+#      copy and this deploy silently has no effect.
+#   2. It copies only a partial DLL bundle; the Excel-backed tools then fail at
+#      runtime with FileNotFoundException.
 # Details: scripts\DEPRECATED-installers.md
 # To run this legacy installer anyway: set $env:ALLOW_DEPRECATED_INSTALL = 1
 # ============================================================================
 if (-not $env:ALLOW_DEPRECATED_INSTALL) {
-    Write-Host 'DEPRECATED installer (deploys to Roaming orphan + partial bundle).' -ForegroundColor Red
-    Write-Host 'Use: pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023' -ForegroundColor Yellow
+    Write-Host 'DEPRECATED installer (per-user target may be shadowed + partial DLL bundle).' -ForegroundColor Red
     Write-Host 'See scripts\DEPRECATED-installers.md . Override: $env:ALLOW_DEPRECATED_INSTALL = 1' -ForegroundColor Yellow
     exit 1
 }

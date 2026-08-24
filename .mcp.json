@@ -7,17 +7,6 @@
         "./MCP-Server/build/index.js"
       ],
       "env": {}
-    },
-    "code-review-graph": {
-      "command": "C:\\Users\\tkgcc\\.local\\bin\\code-review-graph.exe",
-      "args": [
-        "serve",
-        "--tools",
-        "get_minimal_context_tool,query_graph_tool,semantic_search_nodes_tool,detect_changes_tool,get_impact_radius_tool,get_affected_flows_tool,build_or_update_graph_tool,list_graph_stats_tool"
-      ],
-      "cwd": "C:\\Users\\tkgcc\\AppData\\Roaming\\pyRevit-Master\\pyrevitlib\\rjm\\REVIT_MCP\\REVIT_MCP_study-main",
-      "type": "stdio",
-      "env": { "PYTHONUTF8": "1" }
     }
   }
 }

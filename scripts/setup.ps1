@@ -2,11 +2,12 @@
 # Revit MCP 一鍵安裝程式（完整版）
 # ============================================================================
 # ⚠ DEPRECATED (add-in deploy stage) 2026-07-22 — the Revit Add-in deploy in this
-#   script copies to %APPDATA% (Roaming) = ORPHAN; Revit loads from %ProgramData%.
-#   For build+deploy of the Revit add-in use instead:
-#     pwsh -File C:\Users\tkgcc\.gemini\scripts\revit-build-deploy.ps1 -RevitVersion 2023
-#   Other stages (Node/.NET, MCP-Server build, client config, port 8964) are fine.
-#   See scripts\DEPRECATED-installers.md .
+#   script copies to %APPDATA%\Autodesk\Revit\Addins\<ver>\ (per-user). If a
+#   machine-wide manifest also exists at %ProgramData%\Autodesk\Revit\Addins\<ver>\,
+#   Revit loads that copy instead and this deploy silently has no effect. It also
+#   copies only a partial DLL bundle. Verify which manifest is live before relying
+#   on this stage. Other stages (Node/.NET, MCP-Server build, client config,
+#   port 8964) are fine. See scripts\DEPRECATED-installers.md .
 # ============================================================================
 # 此腳本會自動完成以下所有步驟：
 #   1. 檢查並安裝必要軟體（Node.js、.NET SDK）
