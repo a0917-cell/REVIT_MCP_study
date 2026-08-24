@@ -14,7 +14,7 @@ Revit MCP 透過 Model Context Protocol (MCP) 讓 AI Client 呼叫 Revit 工具�
 
 ## 這是什麼？
 
-用講人話的方式操作 Revit。跟你的 AI Client 說「幫這個視圖的牆全部標尺寸」或「檢查帷幕牆立面」，Revit 就會做——背後是 **172 個 MCP 工具**，由 **76 份專業 BIM SOP**（建築法規、數量計算、法規檢核）支撐。
+用講人話的方式操作 Revit。跟你的 AI Client 說「幫這個視圖的牆全部標尺寸」或「檢查帷幕牆立面」，Revit 就會做——背後是 **174 個 MCP 工具**，由 **76 份專業 BIM SOP**（建築法規、數量計算、法規檢核）支撐。
 
 **給誰用：** 使用 Revit、想要 AI 輔助且符合規範的 BIM 工程師與建築師。你需要 Windows 上的 Revit（2022–2026），並願意安裝一個 add-in。
 
@@ -33,7 +33,7 @@ Revit MCP 透過 Model Context Protocol (MCP) 讓 AI Client 呼叫 Revit 工具�
 
 | 項目 | 數量 | 來源 |
 |---|---:|---|
-| Runtime MCP tools | 172 | `MCP-Server/src/tools/index.ts` 的 `registerRevitTools()` |
+| Runtime MCP tools | 174 | `MCP-Server/src/tools/index.ts` 的 `registerRevitTools()` |
 | Domain SOP files | 76 | `domain/*.md` 扣除 `README.md`，加上 `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
@@ -160,8 +160,15 @@ MCP/bin/Release.R24/RevitMCP.dll
 建議使用：
 
 ```powershell
-.\scripts\install-addon.ps1
+# 指定 Revit 版本（必要時；偵測到多版本而未指定會要求你選擇，非互動模式則直接失敗，不會擅自挑）
+.\scripts\install-addon.ps1 -Version 2024
+
+# 多版本環境一次部署完
+.\scripts\install-addon.ps1 -All
 ```
+
+腳本會複製**建構產物中的全部 DLL**（R22–R24 為 13 個、R25–R26 為 8 個，兩者都正確）、
+部署前檢查建構產物世代是否與目標 Revit 相符、部署後逐檔 SHA256 驗證、並輪替舊版備份。
 
 手動部署時，`.addin` 與 DLL 必須放在對應版本的 Revit Addins 位置，並維持 `RevitMCP.addin` 內的相對 assembly path：
 

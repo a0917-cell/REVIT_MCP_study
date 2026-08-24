@@ -3,8 +3,8 @@
 **Date:** 2026-07-22
 
 The legacy installers listed below share the same defects. Deploy the add-in with
-`scripts/install-addon.ps1` **at or after upstream commit `b4384cb`** (the R1–R8 rewrite),
-which supersedes every script in the table.
+`scripts/install-addon.ps1`, which since the R1–R8 rewrite (`b4384cb`) supersedes every
+script in the table.
 
 ```powershell
 # Pick the Revit version explicitly; -All covers every installed version with a build.
@@ -45,7 +45,6 @@ another add-in. Compare both manifests before overwriting.
 
 | File | Status |
 |------|--------|
-| `scripts/install-addon.ps1` (pre-`b4384cb`) | Guarded — exits unless `$env:ALLOW_DEPRECATED_INSTALL=1` |
 | `scripts/install-addon-bom.ps1` | BOM/CJK variant — do not use |
 | `scripts/install-ascii.ps1` | ASCII variant — do not use |
 | `scripts/install-addon.bat` | Batch variant — do not use |

@@ -14,7 +14,7 @@ Revit MCP lets AI clients call Autodesk Revit tools through the Model Context Pr
 
 ## What is this?
 
-Talk to Revit in plain language. Ask your AI client to *"dimension every wall on this view"* or *"check the curtain-wall elevations"*, and Revit does it — through **172 MCP tools** backed by **76 professional BIM SOPs** (building code, quantity take-off, compliance checks).
+Talk to Revit in plain language. Ask your AI client to *"dimension every wall on this view"* or *"check the curtain-wall elevations"*, and Revit does it — through **174 MCP tools** backed by **76 professional BIM SOPs** (building code, quantity take-off, compliance checks).
 
 **Who it's for:** BIM engineers and architects who use Revit and want AI-assisted, standards-based workflows. You'll need Revit (2022–2026) on Windows and to be comfortable installing an add-in.
 
@@ -33,7 +33,7 @@ Questions or want to show what you built? → **[Discussions](https://github.com
 
 | Item | Count | Source |
 |---|---:|---|
-| Runtime MCP tools | 172 | `registerRevitTools()` in `MCP-Server/src/tools/index.ts` |
+| Runtime MCP tools | 174 | `registerRevitTools()` in `MCP-Server/src/tools/index.ts` |
 | Domain SOP files | 76 | `domain/*.md` except `README.md`, plus `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
@@ -160,8 +160,17 @@ MCP/bin/Release.R24/RevitMCP.dll
 Recommended:
 
 ```powershell
-.\scripts\install-addon.ps1
+# Pick the Revit version explicitly. With several installed and no -Version, the script asks;
+# in -NonInteractive mode it fails rather than guessing (it never silently picks the highest).
+.\scripts\install-addon.ps1 -Version 2024
+
+# Deploy to every installed version that has a matching build
+.\scripts\install-addon.ps1 -All
 ```
+
+The script copies **every DLL in the build output** (13 for R22-R24, 8 for R25-R26 — both are correct),
+checks the build generation matches the target Revit before copying, verifies each file by SHA256
+afterwards, and rotates old backups.
 
 For manual deployment, place the `.addin` file and DLL under the matching Revit Addins directory, and keep the relative assembly path in `RevitMCP.addin`:
 
