@@ -70,6 +70,28 @@ Before claiming live Revit state:
 
 If the Revit MCP tools are unavailable, state that limitation and provide generic guidance only.
 
+## Origin Check (do not remove)
+
+`AcceptConnectionsAsync` in `MCP/Core/SocketService.cs` rejects any WebSocket handshake that
+carries an `Origin` header with HTTP 403, before the upgrade and before the exclusive-lock
+check. This is not a configuration preference and has no escape hatch.
+
+The WebSocket handshake is not covered by the same-origin policy: a browser lets any page open
+`ws://localhost:8964` with no CORS preflight. Without this check, a user merely having a
+malicious tab open lets that page drive the model they are editing — cross-site WebSocket
+hijacking. The Node MCP bridge (the `ws` package) sends no `Origin`; browsers always send one,
+so "has an Origin, therefore refuse" separates the two exactly.
+
+Consequences for changes here:
+
+- Do not add an allow-list or a settings flag that can switch this off. `config.json` is a plain
+  file, so a flag would reduce the defense to whoever can write that file.
+- A browser-based MCP host connecting directly to the port is refused by design. The supported
+  path stays AI client → Node stdio server → WebSocket.
+- Capture `context.Request.RemoteEndPoint` **before** calling `context.Response.Close()`.
+  Reading the request after the response is closed yields nothing and the logging silently does
+  not happen, while the 403 still goes out — so the branch looks like it works.
+
 ## Single-Connection Limitation
 
 The Revit-side WebSocket service (`MCP/Core/SocketService.cs`) holds an exclusive lock: while one MCP client is connected, additional incoming connections are rejected with HTTP 409 before the WebSocket upgrade (no more clobbering the active connection). Consequences:

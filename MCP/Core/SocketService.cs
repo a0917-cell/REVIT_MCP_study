@@ -32,6 +32,7 @@ namespace RevitMCP.Core
         private string _activeClientName;   // 來自 ws 連線 query string ?client= (MCP clientInfo.name)
         private DateTime? _connectedAtUtc;
         private DateTime _lastRejectLogUtc = DateTime.MinValue;
+        private DateTime _lastOriginRejectLogUtc = DateTime.MinValue;
 
         public event EventHandler<RevitCommandRequest> CommandReceived;
         public bool IsRunning => _isRunning;
@@ -152,6 +153,25 @@ namespace RevitMCP.Core
 
                     if (context.Request.IsWebSocketRequest)
                     {
+                        // WebSocket 握手不受同源政策保護：瀏覽器允許任何網頁對
+                        // ws://localhost:8964 發起連線，不做 CORS preflight。沒有這道檢查，
+                        // 使用者只要開著一個惡意分頁，該頁就能連上並對現正編輯的模型下命令
+                        // (cross-site WebSocket hijacking)。
+                        //
+                        // node MCP bridge (ws 套件) 不會送 Origin，瀏覽器一定會送，
+                        // 所以「帶 Origin 即拒」正好切開兩者。檢查排在獨佔鎖之前：
+                        // 不可信的握手不該有機會得知鎖的狀態，也不該佔用鎖。
+                        string origin = context.Request.Headers["Origin"];
+                        if (!string.IsNullOrEmpty(origin))
+                        {
+                            // 先取出來源再關 response：Close() 之後碰 context.Request 會拿不到值。
+                            var originRemote = context.Request.RemoteEndPoint;
+                            RateLimitedOriginRejectLog(origin, originRemote);
+                            context.Response.StatusCode = 403;
+                            context.Response.Close();
+                            continue;
+                        }
+
                         bool locked;
                         lock (_connectionLock)
                         {
@@ -213,6 +233,21 @@ namespace RevitMCP.Core
             {
                 _lastRejectLogUtc = now;
                 Logger.Info("[Socket] 已拒絕重複連線 (連線已被鎖定) 來源: " + remote + ". 後續拒絕將靜默 30 秒。");
+            }
+        }
+
+        /// <summary>
+        /// 限流記錄被 Origin 檢查擋下的握手。惡意分頁可能每秒重試，不限流會洗掉整份 log。
+        /// 這是安全事件，值得留下來源與 Origin 值供事後追查。
+        /// </summary>
+        private void RateLimitedOriginRejectLog(string origin, System.Net.IPEndPoint remote)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastOriginRejectLogUtc).TotalSeconds >= 30)
+            {
+                _lastOriginRejectLogUtc = now;
+                Logger.Info("[Socket] 已拒絕帶 Origin 的握手 (瀏覽器來源不受信任): origin=" + origin
+                    + " 來源: " + remote + ". 後續拒絕將靜默 30 秒。");
             }
         }
 
