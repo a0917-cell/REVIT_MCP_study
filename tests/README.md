@@ -1,0 +1,82 @@
+# tests
+
+Two harnesses covering the parts of the add-in whose failure modes are silent — where the
+code appears to work and produces a plausible wrong answer rather than an error.
+
+They are plain console executables, not a unit-test framework. Exit code `0` means every
+check passed; non-zero means at least one failed, so they drop into a script without a
+runner. Each prints what it expected next to what it got, so a failure says which case
+broke rather than just that something did.
+
+## Running them
+
+Build the add-in first — `MCP/bin/` is gitignored, so a fresh clone has none:
+
+```powershell
+cd MCP
+dotnet build -c Release.R23 RevitMCP.csproj
+```
+
+Then:
+
+```powershell
+dotnet run -c Release --project tests\RevitMCP.Tests.FramingAlign
+dotnet run -c Release --project tests\RevitMCP.Tests.SocketOrigin
+```
+
+To test another Revit year, pass the matching configuration:
+
+```powershell
+dotnet build -c Release tests\RevitMCP.Tests.FramingAlign -p:RevitTestConfiguration=Release.R24
+```
+
+The Revit install is found by probing the usual `C:\Program Files\Autodesk\Revit <year>`
+directories. Set `REVIT_TEST_DIR` to override.
+
+**These cannot run in CI.** The repo's workflows are `ubuntu-latest`; these need .NET
+Framework 4.8 and a local Revit install for `RevitAPI.dll`. Run them on a development
+machine.
+
+## RevitMCP.Tests.FramingAlign
+
+Pins `FramingAlignGeometry.EvaluateCandidate`, the geometry decision behind
+`align_structural_framing`: which nearby member a beam end should butt against, whether the
+joint is a T or an L corner, and how far to retract or extend.
+
+Three cases reproduce values measured by hand in a real model — a T joint against an
+`H700x200` giving `-100mm`, a T joint against a wide girder whose bbox reads 433mm giving
+`-216.5mm`, and an L corner against an `RH300x150` giving `+75mm`. The fixtures are
+constructed to match each described situation rather than dumped from the model; what is
+pinned is that the documented situation still produces the documented number.
+
+The five rejection cases carry as much weight as the three positives. A function that
+accepted every candidate would pass all three positive cases, so without them the suite
+would not distinguish working code from code that had stopped filtering. One pair is
+explicit about this: the same box is accepted as a column and rejected as a beam, which
+only holds if the axial-footprint filter is actually running.
+
+## RevitMCP.Tests.SocketOrigin
+
+Starts the real `SocketService` from the built add-in and performs two raw RFC 6455
+handshakes against it — one without an `Origin` header (what the Node bridge sends) and one
+with (what a browser sends).
+
+The expected results are `101` and `403`. Before the Origin check existed both returned
+`101`, meaning any page open in the user's browser could connect to the add-in and issue
+commands against the model being edited.
+
+It listens on port **18964**, not the production 8964: it starts a real listener, and using
+the live port would collide with a running add-in and pull its port-conflict handling —
+including the process-kill path — into a test run. `ExclusiveLock` is disabled so the two
+handshakes are independent; with the lock on, the second would fail with `409` for a reason
+unrelated to what is being tested.
+
+## Adding to these
+
+The add-in is referenced with `Private=false`, so it is never copied next to the harness and
+a rebuilt `MCP/` is picked up without rebuilding the test. `tests/Directory.Build.props`
+bakes the resolved path in as assembly metadata for the `AssemblyResolve` hook in
+`tests/Shared/RevitAssemblies.cs`, which is linked into both projects.
+
+Anything reachable without a live `Document` belongs here. Anything needing an open model
+does not — say so in the output rather than pretending it was covered.
