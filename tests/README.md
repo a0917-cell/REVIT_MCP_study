@@ -20,14 +20,13 @@ dotnet build -c Release.R23 RevitMCP.csproj
 Then:
 
 ```powershell
-dotnet run -c Release --project tests\RevitMCP.Tests.FramingAlign
 dotnet run -c Release --project tests\RevitMCP.Tests.SocketOrigin
 ```
 
 To test another Revit year, pass the matching configuration:
 
 ```powershell
-dotnet build -c Release tests\RevitMCP.Tests.FramingAlign -p:RevitTestConfiguration=Release.R24
+dotnet build -c Release tests\RevitMCP.Tests.SocketOrigin -p:RevitTestConfiguration=Release.R24
 ```
 
 The Revit install is found by probing the usual `C:\Program Files\Autodesk\Revit <year>`
@@ -36,24 +35,6 @@ directories. Set `REVIT_TEST_DIR` to override.
 **These cannot run in CI.** The repo's workflows are `ubuntu-latest`; these need .NET
 Framework 4.8 and a local Revit install for `RevitAPI.dll`. Run them on a development
 machine.
-
-## RevitMCP.Tests.FramingAlign
-
-Pins `FramingAlignGeometry.EvaluateCandidate`, the geometry decision behind
-`align_structural_framing`: which nearby member a beam end should butt against, whether the
-joint is a T or an L corner, and how far to retract or extend.
-
-Three cases reproduce values measured by hand in a real model — a T joint against an
-`H700x200` giving `-100mm`, a T joint against a wide girder whose bbox reads 433mm giving
-`-216.5mm`, and an L corner against an `RH300x150` giving `+75mm`. The fixtures are
-constructed to match each described situation rather than dumped from the model; what is
-pinned is that the documented situation still produces the documented number.
-
-The five rejection cases carry as much weight as the three positives. A function that
-accepted every candidate would pass all three positive cases, so without them the suite
-would not distinguish working code from code that had stopped filtering. One pair is
-explicit about this: the same box is accepted as a column and rejected as a beam, which
-only holds if the axial-footprint filter is actually running.
 
 ## RevitMCP.Tests.SocketOrigin
 
