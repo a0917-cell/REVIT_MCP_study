@@ -14,7 +14,7 @@ Revit MCP 透過 Model Context Protocol (MCP) 讓 AI Client 呼叫 Revit 工具�
 
 ## 這是什麼？
 
-用講人話的方式操作 Revit。跟你的 AI Client 說「幫這個視圖的牆全部標尺寸」或「檢查帷幕牆立面」，Revit 就會做——背後是 **174 個 MCP 工具**，由 **76 份專業 BIM SOP**（建築法規、數量計算、法規檢核）支撐。
+用講人話的方式操作 Revit。跟你的 AI Client 說「幫這個視圖的牆全部標尺寸」或「檢查帷幕牆立面」，Revit 就會做——背後是 **180 個 MCP 工具**，由 **79 份專業 BIM SOP**（建築法規、數量計算、法規檢核）支撐。
 
 **給誰用：** 使用 Revit、想要 AI 輔助且符合規範的 BIM 工程師與建築師。你需要 Windows 上的 Revit（2022–2026），並願意安裝一個 add-in。
 
@@ -33,8 +33,8 @@ Revit MCP 透過 Model Context Protocol (MCP) 讓 AI Client 呼叫 Revit 工具�
 
 | 項目 | 數量 | 來源 |
 |---|---:|---|
-| Runtime MCP tools | 174 | `MCP-Server/src/tools/index.ts` 的 `registerRevitTools()` |
-| Domain SOP files | 76 | `domain/*.md` 扣除 `README.md`，加上 `domain/references/*.md` |
+| Runtime MCP tools | 180 | `MCP-Server/src/tools/index.ts` 的 `registerRevitTools()` |
+| Domain SOP files | 79 | `domain/*.md` 扣除 `README.md`，加上 `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
 如果這些數字改變，請同步更新 `CLAUDE.md`、本 README、`README.md`、`docs/DOCUMENT_AUDIENCE_INVENTORY.md`，並執行：
@@ -227,6 +227,8 @@ VS Code 設定在 `.vscode/mcp.json`：
 ### AI Client 切換與並用限制
 
 Revit 端的 WebSocket 服務採「獨占鎖」機制：同一時間只有一個 AI Client 能保持連線。第二個嘗試連線的 Client 會被直接拒絕（HTTP 409），而不是取代掉原本的連線——第一個連線因此維持穩定。因此多個 AI Client 是「切換使用」而不是「同時並用」：
+
+在這道鎖定檢查之前，只要 handshake 帶有瀏覽器的 `Origin` 標頭，就會直接以 HTTP 403 拒絕。這是為了擋掉另一種風險：WebSocket handshake 不受瀏覽器同源政策保護，若無此檢查，使用者瀏覽器裡開著的惡意分頁就可能在不知情的情況下操控 add-in。此規則沒有設定可以關閉，且不影響 MCP bridge——它本來就不會送出 `Origin` 標頭。
 
 1. 在 Revit ribbon 點擊 **「切換/釋放連線」** 按鈕，釋放目前的連線。
 2. 啟動或重新連線另一個 AI Client，它的 MCP Server 連上 `localhost:8964` 後即取得連線。

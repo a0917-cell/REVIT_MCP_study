@@ -15,8 +15,8 @@ This inventory defines which project documents are for AI agents, human readers,
 
 | Item | Count | Source |
 |---|---:|---|
-| Runtime MCP tools | 174 | `registerRevitTools()` |
-| Domain SOP files | 76 | `domain/*.md` except README, plus `domain/references/*.md` |
+| Runtime MCP tools | 180 | `registerRevitTools()` |
+| Domain SOP files | 79 | `domain/*.md` except README, plus `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
 ## AI-Only Documents
@@ -26,7 +26,6 @@ These should be English-first.
 | Path | Status | Notes |
 |---|---|---|
 | `CLAUDE.md` | canonical | Main AI constitution and project map |
-| `CODE_MAP.md` | canonical | Module navigation map (where-to-look only; no rules or methods) |
 | `AGENTS.md` | redirect | Must contain only `CLAUDE.md` |
 | `GEMINI.md` | redirect | Must contain only `CLAUDE.md` |
 | `.claude/commands/*.md` | command docs | Slash-command behavior |
@@ -67,6 +66,10 @@ These must remain understandable by both sides.
 | `docs/UPDATE-PULL-GUIDE.md`, `docs/branch-index.md` | users and maintainers | Update flow and branch overview |
 | `docs/MIGRATION_GUIDE.md` | users and fork contributors | Traditional Chinese; append-only, newest-first record of upgrades that affect existing users or fork contributors (e.g. the MCP 2026-07-28 dual-era upgrade) |
 | `docs/integrations/*.md` | users, fork contributors, and the `archicad-skill-adapter` Skill | Traditional Chinese; opt-in Archicad MCP backend docs (setup, Revit/Archicad Skill portability matrix, Wave 2 translation proposal) salvaged from issue #98. Not yet Skill-level live-tested; carry explicit status disclaimers where claims are unverified. |
+| `docs/mep-design-playbook-ch1.zh-TW.md` | junior MEP engineers, and architects who coordinate with MEP | Traditional Chinese; teaching companion to `domain/mep-space-demand-matrix.md`. Chapter 1 covers where pre-design quantities come from (the five kinds), the MEP-architecture loop, and the three gates. Derived from one exercise on an Autodesk course model, not a client project; carries its own honesty-boundary section. The domain file wins on method. |
+| `docs/mep-design-playbook-ch2.zh-TW.md` | junior MEP engineers continuing from Chapter 1 | Traditional Chinese; Chapter 2 turns the Chapter 1 numbers into something the model can check itself. Covers topology-before-values, why ventilation is modelled before HVAC, which field a value belongs in (supply vs exhaust, decided by the code's ventilation-method clause), two write-time traps (internal units, schedule-in-foreground), a step-by-step air-terminal placement walkthrough, and the supply/return/exhaust connector trap. |
+| `docs/mep-design-playbook-ch3.zh-TW.md` | junior MEP engineers continuing from Chapter 2 | Traditional Chinese; teaching companion to `domain/mep-space-demand-matrix.md` 4-1/4-2. Chapter 3 covers grouping air terminals and equipment into systems (traceable-vs-decided grouping basis, equipment identity by geometry vs by decision, type-vs-instance system labels), and the checks that only unlock once ductwork is drawn (system flow validity, the supply/exhaust-vs-endpoint-sum leak check, and three same-shape boolean-flag traps). Derived from the same course-model exercise as Chapters 1-2, not a client project; carries its own honesty-boundary section flagging which post-routing figures postdate the log. |
+| `docs/mep-design-playbook-ch1-model-guide.zh-TW.md` | learners opening the Chapter 1 closing model | Traditional Chinese; orientation for the Revit model that Chapter 1 ends at — what each schedule column teaches, the four opening-verification numbers, what the model has NOT done yet, and common misreadings. Paired with `mep-design-playbook-ch1.zh-TW.md`. |
 | `docs/claude-code-cheatsheet.html`, `docs/karpathy-gist-zh-tw.html` | readers | Reference pages |
 | other `docs/*.md` topic guides | mixed | Per-topic guides (agent handoff, guard rails, architecture, slope analysis, docs structure); classify individually if promoted to canonical |
 | root-level Chinese notes (`HJPLUS *.md`, `[好學生筆記]*.md`) | community readers | Event notes and adoption guides |

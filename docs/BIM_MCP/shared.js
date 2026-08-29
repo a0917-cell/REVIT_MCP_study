@@ -142,27 +142,41 @@
   // ============================================================
   var PAGE_META = {
     "index": { title: "BIM_MCP Hub", desc: "Reference / archive / latest 三層入口。" },
-    "../index": { title: "BIM_MCP Hub", desc: "回站點首頁。" },
     "reference/philosophy-22-propositions": { title: "22 命題完整宣言", desc: "從「為什麼 MCP」到「會議場景」六群組。" },
     "reference/three-constitutions": { title: "四條憲法", desc: "Passive Ready / Data Honesty / Domain Method / Active Re-Anchoring。" },
     "reference/industry-evidence": { title: "業界證據", desc: "100× / 70% / $15-25K + 三套成熟方法論。" },
     "reference/spectrum-decision": { title: "光譜決策框架", desc: "FAIL 之後的 A/B/C/D 四條路線。" },
     "reference/skills-index": { title: "Skills 索引（54）", desc: "編排層：何時觸發 / 什麼順序。" },
-    "reference/domain-index": { title: "Domain 索引（75）", desc: "知識層：法規 / SOP / lessons。" },
+    "reference/mep-playbook": { title: "機電教戰手冊", desc: "domain/mep-space-demand-matrix 的教學版，三章 + 配套模型導覽。" },
+    "reference/tools-index": { title: "Tools 索引", desc: "180 個執行層工具，依用途分八類。" },
+    "reference/domain-index": { title: "Domain 索引（79）", desc: "知識層：法規 / SOP / lessons。" },
     "reference/deployment-guide": { title: "部署指南", desc: "Nice3point / Release.R{YY} / setup.ps1。" },
     "reference/troubleshooting": { title: "Troubleshooting", desc: "5 經典 + 4 個 5/18 demo 修復。" },
     "reference/contributor-template": { title: "Contributor Template", desc: "新增 Domain / Skill / Tool 的順序。" },
+    "reference/personal-llm-wiki": { title: "個人 LLM Wiki", desc: "把 Domain pull 回家，長成個人知識庫。" },
+    "reference/contributors": { title: "貢獻者致謝", desc: "17 位建置協助人：真名 + handle + PR。" },
     "reference/architecture-v2": { title: "三層架構 V2", desc: "Skill / CLAUDE.md / Domain 分工。" },
     "philosophy-22-propositions": { title: "22 命題完整宣言", desc: "哲學中軸。" },
     "three-constitutions": { title: "四條憲法", desc: "被動就緒 / 資料誠實 / Domain method / Active Re-Anchoring。" },
     "industry-evidence": { title: "業界證據", desc: "100× / 70% / $15-25K。" },
     "spectrum-decision": { title: "光譜決策", desc: "A/B/C/D 框架。" },
     "skills-index": { title: "Skills 索引", desc: "54 個編排層 Skill。" },
-    "domain-index": { title: "Domain 索引", desc: "76 個 SOP 知識。" },
+    "domain-index": { title: "Domain 索引", desc: "79 個 SOP 知識。" },
     "deployment-guide": { title: "部署指南", desc: "多版本 build / DLL 部署。" },
     "troubleshooting": { title: "Troubleshooting", desc: "經典問題 + live fixes。" },
     "contributor-template": { title: "Contributor Template", desc: "雙寫流程：知識先、編排後。" },
-    "architecture-v2": { title: "三層架構 V2", desc: "Skill / Domain / Tool。" }
+    "personal-llm-wiki": { title: "個人 LLM Wiki", desc: "Obsidian 個人知識庫 + 回饋上游。" },
+    "contributors": { title: "貢獻者致謝", desc: "17 位建置協助人名單。" },
+    "architecture-v2": { title: "三層架構 V2", desc: "Skill / CLAUDE.md / Domain 分工。" }
+    // "mep-playbook" and "tools-index" intentionally have no bare key here — the metaFor()
+    // fallback below resolves them via "reference/" + key. A bare entry sitting beside an
+    // existing "reference/xxx" entry gives one page two independently-editable descriptions
+    // with nothing enforcing that they agree. That drift is not hypothetical: of the 12
+    // bare/"reference/" pairs above, architecture-v2 had diverged into a contradiction — its
+    // bare key read "Skill / Domain / Tool" while that page's own <h1> and og:description say
+    // "Skill / CLAUDE.md / Domain". The bare key was corrected to match the page; the other
+    // pairs still differ in wording. When adding a new reference/ page, add ONLY the
+    // "reference/xxx" entry.
   };
 
   window.initFooterPreview = function initFooterPreview() {
@@ -176,7 +190,9 @@
     function metaFor(path) {
       // 從 href 抽出 key
       var key = path.replace(/^(\.\.\/|\.\/)/, "").replace(/\.html$/, "");
-      return PAGE_META[key] || { title: key, desc: "" };
+      // 裸鍵查不到時，退一步試 "reference/" + key —— 新頁面只需維護一組帶前綴的鍵即可涵蓋
+      // index.html（用 "reference/xxx" 連到 reference/ 頁）與 reference/*.html 互連（用裸 "xxx"）兩種呼叫方式。
+      return PAGE_META[key] || PAGE_META["reference/" + key] || { title: key, desc: "" };
     }
 
     function card(dir, href, meta) {

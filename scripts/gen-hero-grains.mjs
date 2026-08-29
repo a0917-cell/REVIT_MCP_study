@@ -7,6 +7,8 @@ import { writeFileSync } from 'node:fs';
 const OUT = new URL('../docs/BIM_MCP/images/', import.meta.url);
 
 // canonical category palette (matches domain-index colour coding)
+// Canvas height is derived from the grid + legend so the art never clips as
+// counts grow — only `cols` needs picking per dataset to keep width <= 1200.
 const grainsSVG = ({ title, sub, groups, cols }) => {
   const cells = [];
   groups.forEach(g => { for (let i = 0; i < g.count; i++) cells.push(g.color); });
@@ -27,7 +29,8 @@ const grainsSVG = ({ title, sub, groups, cols }) => {
   }).join('\n');
 
   const total = cells.length;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900" font-family="'Noto Sans TC','Helvetica Neue',Inter,sans-serif">
+  const H = legendY + 60;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 ${H}" width="1200" height="${H}" font-family="'Noto Sans TC','Helvetica Neue',Inter,sans-serif">
 <style>
   .g{transform-box:fill-box;transform-origin:center;opacity:0;
      animation:pop .6s cubic-bezier(.16,1,.3,1) forwards, glow 4.5s ease-in-out infinite;}
@@ -38,7 +41,7 @@ const grainsSVG = ({ title, sub, groups, cols }) => {
   .s{fill:rgba(255,255,255,.45);font-size:24px;letter-spacing:1px}
   .lg{fill:rgba(255,255,255,.72);font-size:21px}
 </style>
-  <rect width="1200" height="900" rx="0" fill="#0a0a0a"/>
+  <rect width="1200" height="${H}" rx="0" fill="#0a0a0a"/>
   <text x="118" y="150" class="num">${total}</text>
   <text x="120" y="205" class="t">${title}</text>
   <text x="120" y="240" class="s">${sub}</text>
@@ -48,32 +51,40 @@ ${legend}
 `;
 };
 
+// Skills categories (docs/BIM_MCP/reference/skills-index.html, A-F) re-bucketed
+// into the same 5 colour-coded semantics used by the domain chart:
+//   A 法規檢核(6) -> 法規/compliance
+//   B 設計協作(4) + C 文件生產(16) + D 模型分析 non-MEP(16) -> 流程/workflow
+//   E 開發運維 non-external(4) + F 進階開發/文件作者 non-external(3) -> 維運/ops
+//   D 模型分析 MEP subset: detect-clashes, mep-settings-curation, set-project-units(3) -> MEP
+//   E/F external-bridge skills: hj-pr-proposal, archicad-skill-adapter(2) -> 外部/references
 const skills = grainsSVG({
   title: 'Skills · 編排層',
   sub: 'AI WORKFLOW ORCHESTRATION · 5 CATEGORIES',
-  cols: 8,
+  cols: 9,
   groups: [
-    { label: 'A 法規', count: 5, color: '#ef4444' },
-    { label: 'B 設計', count: 4, color: '#60a5fa' },
-    { label: 'C 文件', count: 5, color: '#fbbf24' },
-    { label: 'D 模型', count: 4, color: '#4ade80' },
-    { label: 'E 運維', count: 4, color: '#a78bfa' },
+    { label: '法規', count: 6, color: '#ef4444' },
+    { label: '流程', count: 36, color: '#60a5fa' },
+    { label: '維運', count: 7, color: '#fbbf24' },
+    { label: 'MEP', count: 3, color: '#4ade80' },
+    { label: '外部', count: 2, color: '#a78bfa' },
   ],
 });
 
+// Domain categories from docs/BIM_MCP/reference/domain-index.html cat-summary.
 const domain = grainsSVG({
   title: 'Domain · 知識層',
   sub: 'SHARED BIM SOP · 5 CATEGORIES',
-  cols: 9,
+  cols: 10,
   groups: [
-    { label: '法規', count: 10, color: '#ef4444' },
-    { label: '流程', count: 21, color: '#60a5fa' },
-    { label: '維運', count: 7, color: '#fbbf24' },
-    { label: 'MEP', count: 6, color: '#4ade80' },
+    { label: '法規', count: 11, color: '#ef4444' },
+    { label: '流程', count: 38, color: '#60a5fa' },
+    { label: '維運', count: 11, color: '#fbbf24' },
+    { label: 'MEP', count: 18, color: '#4ade80' },
     { label: '外部', count: 1, color: '#a78bfa' },
   ],
 });
 
-writeFileSync(new URL('skills__hero__22-grains.svg', OUT), skills);
-writeFileSync(new URL('domain__hero__45-grains.svg', OUT), domain);
-console.log('generated: skills__hero__22-grains.svg (22), domain__hero__45-grains.svg (45)');
+writeFileSync(new URL('skills__hero__grains.svg', OUT), skills);
+writeFileSync(new URL('domain__hero__grains.svg', OUT), domain);
+console.log('generated: skills__hero__grains.svg (54), domain__hero__grains.svg (79)');

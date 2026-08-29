@@ -1,21 +1,23 @@
 ---
 name: tool-capability-boundary
-description: "MCP 工具能力邊界定義表：定義目前 MCP 工具的不可達邊界（如連結模型元素不可查詢、Revit UI API／第三方外掛按鈕觸發不可達等），讓 AI 在收到相關請求時立即告知使用者限制而非反覆嘗試。當使用者提到連結模型、linked model、結構、能力邊界、boundary、找不到元素、0 結果、pyRevit、UI API、按鈕觸發、PostableCommandId、Reload 時觸發。"
+description: "MCP 工具能力邊界定義表：定義目前 MCP 工具的不可達邊界（如連結模型元素不可查詢、Revit UI API／第三方外掛按鈕觸發不可達、Space 品類無工具支援等），讓 AI 在收到相關請求時立即告知使用者限制而非反覆嘗試。當使用者提到連結模型、linked model、結構、能力邊界、boundary、找不到元素、0 結果、pyRevit、UI API、按鈕觸發、PostableCommandId、Reload、Space、機電空間、明細表公式、條件格式時觸發。"
 metadata:
-  version: "1.2"
-  updated: "2026-08-10"
+  version: "1.3"
+  updated: "2026-08-11"
   created: "2026-03-10"
   contributors:
     - "Admin"
   references:
     - "https://github.com/shuotao/REVIT_MCP_study/issues/110"
     - "https://github.com/shuotao/REVIT_MCP_study/issues/98"
+    - "MCP/Core/CommandExecutor.cs:4119（create_view_schedule 品類名稱解析）"
   related:
     - mep-extension-guide.md
+    - mep-space-demand-matrix.md
   referenced_by:
     - element-coloring
     - archicad-skill-adapter
-  tags: [連結模型, linked model, 結構, structural, 邊界, 能力, boundary, 找不到元素, pyRevit, UI API, PostableCommandId, 按鈕觸發, Reload, Archicad, backend, namespace]
+  tags: [連結模型, linked model, 結構, structural, 邊界, 能力, boundary, 找不到元素, pyRevit, UI API, PostableCommandId, 按鈕觸發, Reload, Archicad, backend, namespace, Space, MEPSpaces, 機電空間, schedule, 明細表, Calculated Value, Conditional Format]
 ---
 
 # MCP 工具能力邊界定義表
@@ -63,12 +65,15 @@ metadata:
 | **辨識方式** | 類型級查詢有結果，但實例級查詢卻為 0 |
 | **AI 應對策略** | 回覆：此為模型中的[類型/型別]資訊，模型中已有該類型但可能尚未放置實例。需查詢實例級資訊請使用不同查詢方式 |
 
-### L5: Schedule/報表資料不在 MCP 範圍內
+### L5: Schedule/報表資料不在 MCP 範圍內 ⚠️ 已大部分解除（2026-08-11 更正）
 
 | 項目 | 詳細說明 |
 |------|------|
-| **限制** | `get_all_views` 可列出 `ViewSchedule` 類型的視圖，但目前 MCP 工具無法讀取 Revit 明細表/報表的內容 |
-| **未來方案** | 開發 `query_schedule_data` C# 擴充 |
+| **原限制（已過時）** | 原文寫「MCP 工具無法讀取 Revit 明細表/報表的內容」。**此敘述已不成立** |
+| **現況** | `MCP-Server/src/tools/schedule-tools.ts` 已提供 `list_schedules`（列出明細表）、`read_schedule`（讀取明細表內容）、`create_view_schedule`（建立明細表）。明細表的**列出、讀取、建立骨架**都在 MCP 範圍內 |
+| **仍不可達的部分** | (a) **Calculated Value 公式**——Revit API 無公式 setter，只能在 Revit UI 的 Fields → Add Calculated Parameter 建立；(b) **Conditional Format**（條件格式／逐格標色）——同樣無 API setter，只能 GUI 設定；(c) **新增專案參數／共用參數**——目前無對應工具，明細表要用的自建欄位須 GUI 建立 |
+| **AI 應對策略** | 收到「用明細表做自動檢核」類請求時，正確回答是「骨架與讀回可自動化，**公式與標色必須手動**」，而不是「明細表不在 MCP 範圍」。SOP 必須把 (a)(b)(c) 明確寫成手動步驟 |
+| **更正起源** | 2026-08-11 為 `domain/mep-space-demand-matrix.md` 盤點載體時發現本條與原始碼不符。原條目應為 2026-03 撰寫時的真實狀態，`read_schedule` 等工具為其後加入，本條未同步更新 |
 
 ### L6: override_element_graphics 在 Room 上 silent no-op（2026-05-22 新增）
 
@@ -134,7 +139,7 @@ metadata:
 | **替代路徑（正解）** | 若目的其實是「驗證某段 pyRevit 腳本邏輯有沒有效」，**不需要隔著 UI 按鈕測**——把該段邏輯**收編成 MCP 工具**直接呼叫、直接斷言結果，跳過 UI 觸發這一層。本專案已有不少工具就是這樣從 pyRevit 生態圈收編而來（研究路徑與案例見 `domain/mep-extension-guide.md`）。具體做法：先描述「我想驗證的邏輯是 X」，再依既有工具設計流程（例如已封裝獨立 `.cs`/DLL 命令時走 `dll-to-mcp-tool` skill）把邏輯包成可從 MCP 直接呼叫、可用回傳值斷言結果的工具，而不是驅動 UI 按鈕再靠人眼確認畫面 |
 | **未來方案** | 若 Revit API 或 MCP 官方 SDK 未來釋出穩定、跨版本相容的 UI 命令 orchestration 介面（而非反射 hack），可重新評估收編；在此之前維持不收 |
 
-**lesson 起源**：issue #110（CyberPotato0416，2026-08-01 提出）。提案人以 OSI 七層模型精確定位出 L5↔L6、L6↔L7 兩處介面斷層，根因判斷（pyRevit 按鈕動態註冊、無固定 `PostableCommandId`）正確，分析品質值得肯定。維護者裁決此為範圍外（不落地方案 A/B），但保留其技術分析價值，並在此記錄替代路徑（邏輯收編為 MCP 工具），供未來類似請求参考。
+**lesson 起源**：issue #110（CyberPotato0416，2026-08-01 提出）。提案人以 OSI 七層模型精確定位出 L5↔L6、L6↔L7 兩處介面斷層，根因判斷（pyRevit 按鈕動態註冊、無固定 `PostableCommandId`）正確，分析品質值得肯定。維護者裁決此為範圍外（不落地方案 A/B），但保留其技術分析價值，並在此記錄替代路徑（邏輯收編為 MCP 工具），供未來類似請求參考。
 
 ### L11: 多 Backend Namespace 隔離（Revit / Archicad）
 
@@ -150,6 +155,237 @@ metadata:
 | **安裝邊界** | Repository 預設 config 維持 Revit-only。只有使用者主動 opt in 才加入獨立的 `archicad-mcp` entry；停用時只移除該 entry。 |
 
 **lesson 起源**：issue #98（Archwiz-boss，fork `Archwiz-boss/BIM_MCP_study`，commit `998adce8`）。原編號在 fork 分支上是 `L10`，但該分支自 2026-07-22 起未再更新，同一時段本檔已把 `L10` 用於 issue #110（Revit UI API／第三方外掛 UI 命令觸發不可達）。維護者裁決 2026-08 全數收編 issue #98 的 Skill／Domain 內容，此節在收編時重編號為 `L11` 以避免覆蓋既有 L10，內容本身逐字保留 fork 原文。收編僅涵蓋 Domain 知識與 Skill 編排文件，不含 fork 的 `.mcp.json`／`.vscode/mcp.json`／setup 腳本；相關的可攜性狀態與零實測證據說明見 `docs/integrations/archicad-skill-portability.md`。
+
+### L12: Space（機電空間）無**專用**工具，但通用工具可用（2026-08-11 新增，同日經實測大幅更正）
+
+> ⚠️ **本條初版宣稱「MCP 完全不支援 Space 品類」——該敘述不正確，已於同日實測推翻。** 保留原始敘述與更正過程，作為「靜態掃碼推論 ≠ 實際能力」的教訓。
+>
+> **初版的錯誤推論**：掃過本 repo 全部 `.ts` 與 `.cs`，`MEPSpaces` / `OST_MEPSpaces` 零命中，遂推論工具集不支援 Space。
+> **錯在哪**：本專案多數通用工具以**品類名稱字串**解析（`doc.Settings.Categories` 逐一比對），**不是白名單**。原始碼中沒有出現某品類的識別字，不代表該品類不可用。同樣的誤判先前也發生在 `create_view_schedule` 上（見 L-E）。
+
+**2026-08-11 實測結果（Revit 2026，69 個 Space 的模型）**：
+
+| 動作 | 結果 |
+|---|---|
+| `query_elements_with_filter {category:"Spaces"}` | ✅ **可用**，回傳 69 筆完整資料 |
+| 可取得欄位 | `ElementId`、`Number`、`Name`、`Level`、`Area`、`Volume`、`Unbounded Height`、`Upper Limit`、`Limit Offset`、**`Room Number`／`Room Name`**、`Plenum`、`Occupiable`、自建專案參數等 |
+| `modify_element_parameter` 寫入 Space 參數 | ✅ **可用**（實測寫入 **42** 筆：`MEP_Tag` 26 筆＋`MEP_驗收狀態` 16 筆） |
+| `create_view_schedule {category:"Spaces"}` | ✅ 可用（見 L-E） |
+| `read_schedule` 讀 Space 明細表 | ✅ 可用 |
+
+| 項目 | 詳細說明 |
+|------|------|
+| **實際限制** | 無 Space **專用**工具。所有房間**專用**工具（`get_room_info`、`get_rooms_by_level`、`renumber_rooms_by_level`、`batch_set_room_height`、`get_room_surface_areas`、`create_room_filled_regions` 等）走的是 `Rooms`（建築房間），**不會**作用於 `Spaces`（機電空間） |
+| **仍不可達** | 建立 Space 實例（須 Revit UI：`Analyze → Spaces & Zones`）、新增專案參數、Calculated Value 公式、Conditional Format |
+| **為什麼重要** | Room 與 Space 不是同義詞。Space 是機電元件，連結建築後讀 Room 邊界，並帶有 Room 沒有的機電欄位——其中 `Actual Supply Airflow`（實際送風量）**只長在 Space 上**。「實際送風量 vs 法定通風量下限」這類逐室自動檢核，因此**只能在 Space 上做，Room 做不到** |
+| **典型場景** | 使用者想做逐空間通風量檢核、HVAC 分區、能源模型、空間需求矩陣時，會需要 Space |
+| **辨識方式** | 使用者提到「Space」「機電空間」「實際送風量」「Actual Supply Airflow」「Spaces & Zones」「System Zone」時，**不要**改用 room **專用**工具代替——兩者是不同品類，代替會給出錯誤結果。應改用**通用**工具並指定 `category:"Spaces"` |
+| **AI 應對策略** | (a) 查詢與寫入用通用工具（`query_elements_with_filter`、`modify_element_parameter`），指定 `category:"Spaces"`；(b) 建立 Space **實例**、新增專案參數、Calculated Value 公式、Conditional Format 四項須在 Revit UI 手動完成；(c) 正確說法是「**查詢、寫入、明細表建立與讀回皆可自動化；建立實例與四項 GUI-only 項目須手動**」，不是「Space 完全不能碰」 |
+| **給未來的通則** ⭐ | **靜態掃碼找不到某品類的識別字，不足以推論該品類不可用。** 本專案多數通用工具以品類**名稱字串**解析（逐一比對 `doc.Settings.Categories`），非白名單。判定某品類能否使用**必須實測**——成本極低（一次查詢），而誤判的代價是整條工作流被錯誤地判定為不可自動化 |
+| **未來方案** | 若逐空間工作流成為常態需求，可考慮新增 `get_spaces_by_level` / `get_space_info` C# 命令，與既有 room 工具並列而非取代 |
+
+**lesson 起源**：2026-08-11 規劃 `domain/mep-space-demand-matrix.md` 時，以靜態掃碼推論 Space 不受支援，寫下本條初版；同日實跑 Tag 分類時實測發現查詢與寫入均可用，遂大幅更正。
+
+**本條的價值不在 Space 本身，而在推論方法。** 同一個錯誤在本檔內發生過兩次——L-E 的 `create_view_schedule`、本條的 `query_elements_with_filter`——成因相同：**把「原始碼裡沒看到」當成「做不到」**。兩次都由實測推翻。往後對「某品類／某能力是否可用」的判斷，一律以實測為準，掃碼結果僅供形成假設。
+
+### L13: `set_project_units` 是整份重建，不是合併（2026-08-11 新增）
+
+| 項目 | 詳細說明 |
+|------|------|
+| **限制** | `set_project_units` 內部以 `new Units(baseSystem)` 建立一份**該系統的全新預設單位設定**，再 `doc.SetUnits(units)` 整個覆蓋文件既有設定（`MCP/Core/Commands/CommandExecutor.ProjectUnits.cs:59, 81`）。它**不是**在既有設定上做局部修改 |
+| **可指定的範圍** | 只有 4 個 spec：`Length`、`Area`、`Volume`、`AirFlow`（同檔 72–75 行）。`mode=taiwan` 額外做的事只有把 `AirFlow` 設為 m³/h（65–69 行） |
+| **保留值（精度）完全不支援** | 使用 `new FormatOptions(unitId)`，採該單位預設精度；全檔未呼叫 `SetAccuracy()`，也未開放任何精度參數。小數位數無法由工具設定，且既有精度設定會被一併重設 |
+| **副作用** | 上述 4 個 spec 以外的所有單位設定——壓力、管徑、密度、坡度、流速、溫度等——**都會被靜默重設為該系統預設**，無任何提示 |
+| **對單位制混用地區的具體風險** | 台灣機電實務壓力用 **kg/cm²**（工程制）、管徑常並列英吋。這兩者既不在可指定範圍內，又會被此工具重設掉。使用者以為只是「切公制」，實際上同時破壞了刻意配置的設定 |
+| **辨識方式** | 呼叫前後比對 `Manage → Project Units` 中**未被指定的 discipline**；工具回傳的 `Result` 只報 4 個 spec，不會揭露其他被重設的項目 |
+| **AI 應對策略** | (a) 呼叫前先請使用者確認現況、或明確警告「4 個 spec 以外的單位與所有精度設定都會被重設」；(b) 呼叫後不得宣稱「單位已統一」——只能說這 4 個 spec 已設定，其餘須人工確認；(c) 模型若已有完成的管線尺寸計算，先警告可能擾動 Mechanical Settings 與 Segments and Sizes；(d) 提醒為單一 Transaction，Ctrl+Z 可還原 |
+| **未來方案** | 改為讀取既有 `doc.GetUnits()` 後只覆寫指定 spec（合併語意），並開放 `accuracy` 參數與更多 spec（壓力、管徑、流速等） |
+
+**lesson 起源**：2026-08-11 討論 MEP 前期「單位盤點 → 統一 → 凍結」關卡時，為確認工具實際能力而讀原始碼發現。既有 skill 文件雖有「全案性動作」的警告，但未說明它是**整份重建**、也未說明**精度不受控**——這兩點才是真正會造成無聲破壞的地方。方法論面的處置見 `domain/mep-space-demand-matrix.md` 第 5-1 節「單位凍結」。
+
+**L13 實測驗證（2026-08-11，Revit 2026 課程模型）**：在英制模型上執行 `set_project_units {mode:"taiwan", length:"mm", area:"m2", volume:"m3", airFlow:"m3/h"}`，前後比對確認——
+
+| 項目 | 切換前 | 切換後 | 在可指定的 4 spec 內 |
+|---|---|---|---|
+| 空氣密度 | `0.08 lb/ft³` | `1.20 kg/m³` | ❌ 否 → **被重設** |
+| 空氣黏度 | `0.02 cP` | `0.00002 Pa-s` | ❌ 否 → **被重設，且精度由 2 位變 5 位** |
+| 管路坡度 | `0" / 12"`、`1/2" / 12"`（比值） | `0.00°`、`0.60°`、`1.19°`、`2.39°`（角度） | ❌ 否 → **被重設，且表示法由比值改為角度** |
+
+底層 `raw` 值未變（`airDensity.raw` 前後均為 `0.034064786987`），僅顯示改變。**保留值的規律是「綁在單位上」**：換單位即套用新單位的預設精度，故 `cP`(2 位)→`Pa-s`(5 位) 精度改變，而 `SF` 與 `m²` 預設同為 0 位故面積精度未變——**這也意味著預設精度在英制時就已不足以支撐面積×係數的法規計算，並非切換造成**。
+
+### L14: `get_mep_settings` 的坡度 `display` 欄不跟隨專案單位設定（2026-08-11 新增）
+
+| 項目 | 詳細說明 |
+|------|------|
+| **限制** | `get_mep_settings` 回傳的 `Pipe.slopes[].display` 欄位**以角度格式化**，不反映專案的坡度顯示單位設定 |
+| **實測** | Revit UI（`Manage → MEP Settings → Pipe Settings → Slopes`）已設為百分比並顯示 `0.0000%`、`1.0417%`、`2.0833%`、`4.1667%`；同一時點工具的 `display` 仍回 `0.00°`、`0.60°`、`1.19°`、`2.39°`。驗算 `atan(0.01041667) = 0.5968° ≈ 0.60°`，確認其以角度格式化 |
+| **正確的欄位** | **`percent` 與 `ratio_1_in` 是對的**（`percent: 1.041667` 對應 UI 的 `1.0417%`、`ratio_1_in: 96` 對應 1:96） |
+| **誤判風險** | 讀者會據 `display` 推論「本專案坡度以角度表示」，實際上是百分比。在單位盤點／凍結的情境下，這正是要防的那種誤讀 |
+| **AI 應對策略** | 判讀坡度**一律採用 `percent` 或 `ratio_1_in`，忽略 `display`**。若需向使用者呈現坡度，自行由 `percent` 換算，並註明來源欄位 |
+| **附帶問題** | 工具回傳的 `slopesNote` 寫著「display 會被專案的坡度顯示精度四捨五入」，暗示 display 跟隨專案設定——**該註記與實際行為不符**，應一併修正 |
+| **未來方案** | 修正 `display` 的格式化改用 `SpecTypeId.Slope`（而非 Angle），或直接移除該欄位以免誤導 |
+
+**lesson 起源**：2026-08-11 執行單位凍結時，比對 Revit UI 截圖與工具回傳值發現不一致。一支用來盤點單位的工具本身有單位回報缺陷——這也說明**任何工具的輸出都應與 UI 交叉驗證至少一次**，尤其在單位相關的工作上。
+
+### L15: 連結模型的兩個陷阱——白名單品類、以及**單位跟著連結走**（2026-08-11 新增）
+
+#### (a) `query_linked_elements` 是白名單，`query_elements_with_filter` 不是
+
+兩支工具名稱相近、用途相近，**但品類解析機制完全不同**：
+
+| 工具 | 品類解析 | 可查範圍 |
+|---|---|---|
+| `query_elements_with_filter`（主模型） | **名稱字串比對**，非白名單 | 幾乎任何品類，含 `Spaces`（見 L12） |
+| `query_linked_elements`（連結模型） | **白名單** | 僅 MEP：`Pipes`／`Ducts`／`CableTrays`／`Conduits`／`PipeFittings`／`DuctFittings`；CSA：`Walls`／`Floors`／`StructuralFraming`／`StructuralColumns`／`Columns` |
+
+實測：對連結模型查 `Roofs` 回傳明確錯誤 `無法辨識品類: Roofs`，並列出允許清單。**`Roofs`、`Rooms`、`Spaces`、`Doors`、`Windows` 等皆不可查。**
+
+**AI 應對策略**：需要連結模型中白名單以外的品類時，**不要嘗試各種品類名稱拼法**（那會觸發「類別名稱窮舉式搜尋」的緊急停止模式）。改以下列擇一：(a) 用白名單內的相近品類推估（如以 `Floors` 推估樓板範圍）；(b) 請使用者改開該連結模型為主文件後再查；(c) 明確告知此為工具邊界。
+
+#### (b) ⚠️ 連結元素的參數值以**連結模型自己的單位**回傳
+
+**這是最容易造成無聲錯誤的一條。**
+
+實測情境：主模型（MEP）已切為公制（`set_project_units mode=taiwan`），連結的建築模型仍為英制。查詢連結模型的 `Floors` 時，`Area` 回傳 **`4051 SF`**——**英制**，不是主模型的 m²。
+
+**風險**：使用者剛完成單位凍結、確認主模型為公制，看到回傳值 `4051` 時極可能直接當成 m²。**實際差距為 10.764 倍。**
+
+| 誤讀 | 實際 |
+|---|---|
+| 4,051 m² | **376.3 m²** |
+
+**AI 應對策略**：
+
+1. 讀取連結元素的任何**帶單位物理量**（面積、長度、體積、流量）時，**必須檢查回傳字串是否附單位符號**，不得僅取數值。
+2. 主模型的單位設定**不適用於**連結模型的回傳值。**單位凍結只凍結主模型。**
+3. 跨模型比對數值前，**一律先確認雙方單位**。這是 `domain/mep-space-demand-matrix.md` 第 5-1 節「單位凍結」未涵蓋的範圍——該節只處理主模型。
+
+**lesson 起源**：2026-08-11 為 MEP 空間需求矩陣查詢建築模型屋頂範圍時發現。先撞到 (a) 白名單限制，改用 `Floors` 後撞到 (b) 單位陷阱。兩者皆為單次查詢即暴露，但若未留意回傳字串中的 `SF`，(b) 會產生一個看似合理、實際差 10 倍的建築面積。
+
+---
+
+### L16: `modify_element_parameter` 吃 **Revit 內部單位**，不吃專案顯示單位（2026-08-12 實測新增）⚠️
+
+**分級：L2（工具行為與直覺相反，會靜默寫入錯誤資料）**
+
+L15 是**讀**的單位陷阱，這條是**寫**的——嚴重得多，因為寫錯不會有任何錯誤訊息，資料就這樣進去了。
+
+**實測（`WORK_M1_02_Space-Demand-Matrix`，Space `EXAM 3-4 1304`，專案 AirFlow 顯示單位已凍結為 m³/h）**：
+
+| 寫入值 | 讀回值 | 比值 |
+|---:|---:|---:|
+| `89.2` | **9093** m³/h | ×101.94 |
+| `0.875` | **89** m³/h | ✓ |
+
+**101.94 = ft³/s → m³/h 的換算率**（1 ft³/s = 0.0283168 m³/s × 3600）。
+
+也就是說：**要寫入 89.2 m³/h，參數要給 0.875。** 工具把值原樣送進 Revit API，而 Revit API 的 `Parameter.Set(double)` 一律是內部單位（英制系）——風量是 ft³/s，長度是 ft，面積是 ft²。**專案單位設定只影響顯示，不影響 API 寫入。**
+
+**危險程度**：若批次寫入 29 筆 §102 法定風量而未換算，**29 筆會全部大 102 倍**，沒有任何警告。而明細表會照常顯示、照常有 Grand Total——與「計算欄位漏乘面積」是同一個病徵：**外觀完全正常，數值全錯**。
+
+**AI 應對策略**：
+
+1. **寫入任何帶單位的數值型參數之前，先寫一筆測試值再讀回核對。** 這是一次呼叫的成本，換掉整批資料靜默寫錯的風險。
+2. 確認後，把換算率寫進當次作業紀錄，批次寫入時逐筆換算。
+3. **不要假設「讀回來是 m³/h，寫進去也是 m³/h」。** 讀走顯示單位、寫走內部單位，兩條路徑不對稱。
+4. 已驗證的只有 **AirFlow**。長度、面積、體積、溫度等**尚未驗證**，每一種第一次寫入前都要各自測一筆。
+
+**lesson 起源**：2026-08-12 測試 `Air Changes per Hour` 是否由 `Specified Supply Airflow` 驅動時，順手撞到。原本的目的不是查單位——**這條 lesson 是測另一件事的副產品**，若當時只寫入不讀回，就會帶著 ×102 的錯誤往下走。**呼應 L15 的通則：帶單位的物理量，寫完一定要讀回。**
+
+---
+
+### L17: 批次寫入前先把作用視圖切離明細表（2026-08-12 實測新增）
+
+**分級：L3（不是能力限制，是效能陷阱；症狀為逾時，容易被誤判為連線故障）**
+
+**實測**：對 69 個 Space 批次寫入自建參數。作用視圖為一張 16 欄 × 71 列、含計算欄位的明細表時：
+
+| 批次大小 | 結果 |
+|---:|---|
+| 17 | 15 成功、**2 逾時** |
+| 13 | 7 成功、**6 逾時** |
+| 7 | **7 筆全部逾時** |
+
+此時**唯讀呼叫仍瞬間回應**（`get_active_view` 正常），因此不是連線故障。
+
+**切換作用視圖至一般平面圖後，同樣的 14 筆一批全部秒過，其後 6 筆亦然。**
+
+**成因**：Revit 對作用中的明細表在每次參數變更後重算。寫 69 個參數 = 重算 69 次整張表，且欄位越多、含計算欄位越多，單次重算越貴。負荷會累積，故批次越後面越容易逾時。
+
+**AI 應對策略**：
+
+1. **批次寫入 Space／Room 參數之前，先 `set_active_view` 切到一般平面圖**，寫完再切回。
+2. **不要把「逾時」直接判為連線問題。** 先發一個唯讀呼叫（如 `get_active_view`）分辨：唯讀正常＋寫入逾時 = 前景視圖成本問題；兩者皆失敗 = 連線問題。
+3. 縮小批次**不會**解決此問題（實測 7 筆一批反而全滅），**切視圖才會**。
+
+**lesson 起源**：2026-08-12 為 69 個 Space 寫入判定狀態欄位時發生。當下第一反應是縮小批次，連續三次縮小都更糟；改以「唯讀是否仍正常」分辨後才定位到作用視圖。**縮小批次是直覺的處置，但方向錯了——症狀相同、成因不同的兩件事需要不同的分辨動作。**
+
+---
+
+### L18: Space 的內建外氣機制對 MCP 完全封閉，而且不該用它承載本地判斷（2026-08-12 實測新增）
+
+**分級：L1（能力邊界）＋ 方法論警告**
+
+#### 實測結果：四個環節逐一測過，沒有一條路通
+
+| 參數 | 嘗試 | 結果 |
+|---|---|---|
+| `Space Type` | 寫入 | ❌ `不支援的參數類型: ElementId` |
+| `Outdoor Air Method` | 寫入 | ❌ `參數 Outdoor Air Method 是唯讀的` |
+| `Outdoor Air per Area` | 寫入 | ❌ `參數 Outdoor Air per Area 是唯讀的` |
+| `Outdoor Airflow` | — | 衍生值，由上述三者決定 |
+
+**整條鏈都要在 GUI 做。**
+
+#### 為什麼 `Space Type` 是 ElementId 而不是文字
+
+**Space 是 system family，但 `Space Type` 不是 family type。** 這是 Revit 命名造成的常見混淆——同一個物件上有三個不同的「type」：
+
+| 名稱 | 屬於 |
+|---|---|
+| Family Type | 族群系統 |
+| **`Space Type`** | **Energy Analysis 設定，非族群系統** |
+| `Construction Type` | 同上，外殼熱性能 |
+
+`Space Type` 的值**指向一個專案層級的設定元件**，該元件內含：每人外氣量、每面積外氣量、照明負載密度、電力負載密度、人員密度、使用排程。因此參數型別是 ElementId。
+
+`<Building>` 表示尚未逐室指定，繼承專案層級的 Building Type 設定。
+
+#### ⚠️ 更重要的是：就算能改，也不該把本地判斷放進去
+
+內建 Space Type 的數值來自國際標準（ASHRAE 系）。直覺的處置是「自建一組本地版 Space Type」。**不建議。**
+
+以台灣為例，一組 Space Type 要填的六項裡：
+
+| 項目 | 本地有法定值嗎 |
+|---|---|
+| 每面積外氣量 | ✅ 建築設備編 §102 |
+| 照明負載密度 | ⚠️ 用戶用電設備裝置規則 §36 有，但那是**電力計算**用途，非負荷分析 |
+| 每人外氣量 | ❌ |
+| 人員密度 | ❌ |
+| 設備負載密度 | ❌ |
+| 使用排程 | ❌ |
+
+**六項只有一項查得到。其餘五項填進去，就變成藏在設定物件裡的假設。**
+
+> **設定物件是黑盒。把判斷塞進去，就看不見它是判斷了。**
+>
+> 這與原則 4「決策者欄是資格檢查」互為反面——**能被稽核的前提是它在表面上**。
+> 自建參數欄位（值 ＋ 狀態 ＋ 理由字串）逐室可見、可分組、可統計；Space Type 只看得到一個名字。
+
+#### 應對策略：不要讓內建機制吐出本地答案，分開處理
+
+| 用途 | 交給誰 |
+|---|---|
+| 外殼傳導、日射、內部發熱的**幾何計算** | Revit 負荷分析（它擅長這個） |
+| **外氣負荷** | **自行計算**——Revit 會用它自己的內建外氣量 |
+| 法定通風量檢核 | 自建欄位（見 `mep-space-demand-matrix.md` 5-4） |
+
+**必須講明的代價**：在未調整內建設定的情況下，Revit 產出的 `Calculated Cooling Load` 是「**不含正確外氣負荷**」的版本，**不得直接當設計容量**，須另加外氣負荷。
+
+在濕熱氣候區，外氣除濕負荷佔比很高，這一塊既不能省、也不能交給境外預設值。
+
+**lesson 起源**：2026-08-12 準備跑 `Heating and Cooling Loads` 前檢查輸入時發現——某室內建 `Outdoor Airflow` 與同室依 §102 計算所得相差**約 10 倍**。單位（m³/h）與精度都正確，**錯的是數值背後的標準來源**。這正是本檔 L15／L16 之外的第三類單位相關陷阱：**不是單位錯，是值的出處錯**，而前兩者的檢查方法對它完全無效。
 
 ---
 

@@ -292,19 +292,138 @@ if (Test-Path $pkg) {
     Write-Check "MCP SDK dependency" ($content -match "modelcontextprotocol") "Missing MCP SDK dependency"
 }
 
-# 3-4: Client config template portability — templates must use <YOUR_PROJECT_PATH>, never a hardcoded user path
+# 3-4: No hardcoded user account names anywhere in the tracked tree.
+# Scope note: this check used to read only MCP-Server\*_config.json. The PATTERN was always right;
+# the SCOPE was five files. A Windows account name therefore sat in 15 other tracked files - docs,
+# skills, logs, a domain file - for weeks, while the check reported PASS. Same failure shape as the
+# non-recursive $scanPaths glob: a file that is never read produces the same green report as a file
+# that passes. Default is now SCAN EVERY TRACKED TEXT FILE; exclusions must be explicit below.
 Write-Host ""
-Write-Host "  3-4. Client config template portability:" -ForegroundColor Cyan
-$templateFiles = Get-ChildItem -Path "$projectRoot\MCP-Server\*_config.json" -ErrorAction SilentlyContinue
-$nonPortable = @()
-foreach ($tf in $templateFiles) {
-    $content = Read-FileText $tf.FullName
-    if ($content -and ($content -match '[A-Za-z]:[\\/]+Users[\\/]')) {
-        $nonPortable += $tf.Name
+Write-Host "  3-4. Hardcoded user paths (all tracked text files):" -ForegroundColor Cyan
+# Placeholders are the intended form. Anything else in a Users\ path is a real account name.
+# The three angle-bracket forms are deliberately distinct, not interchangeable: <YOUR_USERNAME>
+# is the reader's own home directory, <CONTRIBUTOR_USERNAME> is a path quoted from a
+# contributor's machine, <OTHER_MACHINE_USER> is a second machine belonging to this project.
+# Calling someone else's home directory "yours" is wrong, which is why this list grew instead
+# of reusing one label. Adding an entry widens what the gate accepts: state the semantics of
+# any new placeholder here, or the list becomes an exit for silencing a FAIL rather than a
+# vocabulary for describing paths honestly.
+$allowedUsers = @(
+    '<YOUR_USERNAME>', 'YOUR_USERNAME', '%USERNAME%', '$env:USERNAME', '*',
+    '<YOUR_PROJECT_PATH>', 'User', 'USERNAME', 'username', 'xxx', 'XXX', '...',
+    '你的名字', '你的使用者名稱', '您的使用者名稱',
+    '<CONTRIBUTOR_USERNAME>', '<OTHER_MACHINE_USER>'
+)
+# Immutable event snapshots (CLAUDE.md): their "Admin" is an explicit teaching example
+# (the page literally says "if your account name were X, type cd ...\X\..."), not a leaked account.
+# Exactly two tracked files actually contain that Admin placeholder in a home-directory path —
+# listed by full path, not by prefix. A prefix like '\docs\0425-' or '\docs\0523-' also matches
+# sibling snapshot files that carry no such placeholder (0425-karpathy-wiki.html,
+# 0523-dry-run-retrospective.md, 0523-handson.html, 0523-monthly.html), silently widening the
+# exclusion to 6 files instead of 2 — exactly the "a file that is never read produces the same
+# green report as a file that passes" failure this check exists to prevent. Full paths only; see
+# the self-check below that FAILs if the hit count ever drifts from this list's length.
+# Note: this file deliberately avoids writing a literal home-directory path anywhere (including in
+# this comment), or the check below would flag its own source text.
+$pathScanSkip = @(
+    '\docs\0425-presentation.html'  # immutable 2026-04-25 snapshot: has the Admin teaching placeholder, not a leaked account
+    '\docs\0523-presentation.html'  # immutable 2026-05-23 snapshot: same Admin teaching placeholder as the 0425 snapshot
+)
+$hardcodedPaths = @()
+$pathScanned = 0
+$pathScanSkipHits = @()
+# git ls-files writes raw UTF-8 filename bytes to stdout (core.quotepath=false disables the
+# octal-escaping git would otherwise apply to non-ASCII bytes). PowerShell decodes captured
+# native-process stdout through [Console]::OutputEncoding, which on a zh-TW/ja-JP Windows
+# console defaults to the legacy code page (e.g. cp950), not UTF-8. Three tracked files with
+# CJK filenames were silently mis-decoded before Test-Path ever ran: Test-Path saw a garbled
+# path, returned $false, and the `if (-not (Test-Path ...)) { continue }` below skipped them
+# with no FAIL, no WARN — the check never judged these 3 files, it never READ them.
+# core.quotepath=false alone does not fix this: it only stops git from octal-escaping; the
+# console still has to decode the resulting UTF-8 bytes correctly, and cp950 does not.
+# Reproduced directly: under a cp950 console, tracked=620 unreadable=3 (the exact 3 CJK-named
+# tracked files); under a UTF-8 console, unreadable=0. Scoped to just this one git call and
+# restored in `finally` — this must not leave a global encoding side effect for the rest of the
+# script or the user's shell.
+$prevConsoleOutputEncoding = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    Push-Location $projectRoot
+    $trackedForPaths = @(& git -c core.quotepath=false ls-files 2>$null)
+    Pop-Location
+} finally {
+    [Console]::OutputEncoding = $prevConsoleOutputEncoding
+}
+# '>' must stay INSIDE the capture. With it excluded, the placeholder <YOUR_USERNAME> was
+# truncated to '<YOUR_USERNAME', never matched the allow-list, and the check flagged its own fix.
+$userRx = [regex]'[Uu]sers[\\/]+([^\\/"''`\s\]},;:]+)'
+foreach ($rel in $trackedForPaths) {
+    if (-not $rel) { continue }
+    $full = Join-Path $projectRoot ($rel -replace '/', '\')
+    if (-not (Test-Path -LiteralPath $full)) { continue }
+    if ($pathScanSkip | Where-Object { $full -like "*$_*" }) { $pathScanSkipHits += $full; continue }
+    $content = Read-FileText $full
+    if (-not $content) { continue }
+    $pathScanned++
+    foreach ($m in $userRx.Matches($content)) {
+        $raw = $m.Groups[1].Value
+        if ($raw.StartsWith('<')) { $u = $raw.TrimEnd('.', ',', ')', '`', '"') }
+        else { $u = $raw.TrimEnd('.', ',', ')', '`', '"', '>') }
+        # An elided path writes '...' as the account name; trimming dots leaves nothing, and an
+        # empty capture must not be reported as a leaked account.
+        if (-not $u) { continue }
+        if ($allowedUsers -contains $u -or $allowedUsers -contains $raw) { continue }
+        $hardcodedPaths += "$rel : account name $u in a home-directory path"
     }
 }
-Write-Check "Config templates contain no hardcoded user paths" ($nonPortable.Count -eq 0) `
-    $(if ($nonPortable.Count -gt 0) { "Hardcoded user path in: $($nonPortable -join ', '). Use <YOUR_PROJECT_PATH> placeholder." } else { "" })
+$hardcodedPaths = $hardcodedPaths | Sort-Object -Unique
+# Floor on the scan universe (inspector review, loop-up S5 correction pass): PASS must never mean
+# "scanned zero files". Before this fix, an empty $trackedForPaths (e.g. `git ls-files` returning
+# nothing - not a git repo, or run outside one) fell through to "No hardcoded user account names in
+# 0 tracked text files" == PASS, exactly the "a file never read produces the same green report as a
+# file that passes" failure this check's own header comment (above) already names. Modeled on
+# 7-15's own Write-Skip for an empty $toolNames: an empty scan universe is UNVERIFIED, not clean,
+# so it must not silently pass. Out-of-scope-of-S5 origin, fixed here because it is the same defect
+# class as 7-15's block-comment fix (check runs, reports PASS, nothing was actually verified) and
+# lives in the same file this stage already owns.
+if ($trackedForPaths.Count -eq 0) {
+    Write-Skip "No hardcoded user account names in tracked text files" "git ls-files returned nothing - scan universe empty, cannot verify (not a git repo, or run outside one)"
+}
+else {
+    Write-Check "No hardcoded user account names in $pathScanned tracked text files" ($hardcodedPaths.Count -eq 0) `
+        $(if ($hardcodedPaths.Count -gt 0) { "$($hardcodedPaths.Count) hardcoded path(s). Replace the account name with <YOUR_USERNAME>." } else { "" })
+    if ($hardcodedPaths.Count -gt 0) { $hardcodedPaths | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
+}
+
+# Self-check: each $pathScanSkip entry must INDEPENDENTLY exclude exactly one tracked file — not
+# just an aggregate total. Comparing only totals lets a false-exclude and a false-include cancel
+# out and still PASS: e.g. entry A over-matches 2 files while entry B (renamed/deleted target)
+# matches 0 — the aggregate reads "2 listed, 2 matched" even though neither entry does what it
+# claims. Reproduced: $pathScanSkip = @('\docs\0425-', '\docs\deleted-file.html') gives an
+# aggregate listed=2 matched=2. An aggregate-only design would PASS on that input; no such
+# check ever shipped, so this is a counterfactual, not a description of a previous version.
+# The true per-entry breakdown is
+# '\docs\0425-' -> 2 files (over-match, silently widens the exclusion) and
+# '\docs\deleted-file.html' -> 0 files (dead entry, excludes nothing). Per-entry breakdown catches
+# both; the aggregate catches neither.
+$pathScanSkipHits = $pathScanSkipHits | Sort-Object -Unique
+$pathScanSkipByEntry = @{}
+foreach ($entry in $pathScanSkip) { $pathScanSkipByEntry[$entry] = @() }
+foreach ($full in $pathScanSkipHits) {
+    foreach ($entry in $pathScanSkip) {
+        if ($full -like "*$entry*") { $pathScanSkipByEntry[$entry] += $full }
+    }
+}
+$pathScanSkipBadEntries = @()
+foreach ($entry in $pathScanSkip) {
+    $hits = @($pathScanSkipByEntry[$entry] | Sort-Object -Unique)
+    if ($hits.Count -ne 1) {
+        $pathScanSkipBadEntries += "'$entry' matched $($hits.Count) file(s) (want exactly 1): $(if ($hits.Count -gt 0) { $hits -join ', ' } else { '(none)' })"
+    }
+}
+Write-Check "Each pathScanSkip entry excludes exactly 1 tracked file ($($pathScanSkip.Count) listed)" ($pathScanSkipBadEntries.Count -eq 0) `
+    $(if ($pathScanSkipBadEntries.Count -gt 0) { $pathScanSkipBadEntries -join ' | ' } else { "" })
+if ($pathScanSkipBadEntries.Count -gt 0) { $pathScanSkipBadEntries | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
 
 # ─────────────────────────────────────────────
 # Phase 4: Build Verification (Windows only)
@@ -651,18 +770,16 @@ function Get-ToolCount {
     return $hits.Count
 }
 
-function Get-RegisteredToolNames {
-    # Same evaluation path as Get-ToolCount, but returns the names themselves so
-    # 7-13 can cross-reference them against the C# dispatcher. $null on failure
-    # (unlike Get-ToolCount, there is no meaningful regex fallback for names --
-    # the caller must Skip rather than guess).
-    $nodeScript = "import('./MCP-Server/build/tools/index.js').then(m=>{console.log(JSON.stringify(m.registerRevitTools().map(t=>t.name)))}).catch(()=>process.exit(2))"
+function Get-ToolNames {
+    # Same runtime registry as Get-ToolCount. Returns $null when the build is unavailable,
+    # so the caller can SKIP rather than report a false failure.
+    $nodeScript = "import('./MCP-Server/build/tools/index.js').then(m=>{console.log(m.registerRevitTools().map(t=>t.name).join('\n'))}).catch(()=>process.exit(2))"
     Push-Location $projectRoot
     $result = & node --input-type=module -e $nodeScript 2>$null
     $exit = $LASTEXITCODE
     Pop-Location
     if ($exit -ne 0 -or -not $result) { return $null }
-    try { return @($result | ConvertFrom-Json) } catch { return $null }
+    return @($result | Where-Object { $_ -match '\S' })
 }
 
 function Get-DomainCount {
@@ -704,16 +821,22 @@ Write-Host "    Tools   = $toolCount  (runtime registerRevitTools())" -Foregroun
 # Exclude: archived snapshots, log files, immutable date-prefixed snapshot HTMLs, external bundled mirrors
 # Snapshot policy: every docs/MMDD-*.html is an immutable event snapshot — its numbers reflect
 # the event date and are never re-synced. Living documents (BIM_MCP reference) stay in scope.
+# Exclusions are enumerated here and nowhere else. Note what is deliberately ABSENT:
+# docs\BIM_MCP\2026-*\ stays in scope. Those pages are mixed - frozen day-of-harvest numbers
+# sit next to live navigation cards describing the CURRENT index pages. A file-level exemption
+# would re-create the very blind spot the recursive glob was added to close.
 $skipPatterns = @('_archive', '\log\', '\docs\0425-', '\docs\0523-', 'reference\external')
 
 # Scan target files for claim-site checks (7-1/7-2/7-3)
+# DEFAULT IS SCAN. The BIM_MCP glob is recursive on purpose: a non-recursive glob silently
+# skipped docs\BIM_MCP\2026-*\ and let three stale domain-count claims sit there while 7-2
+# reported PASS. Exclusions must be explicit ($skipPatterns), never a side effect of depth.
 $scanPaths = @(
     "$projectRoot\CLAUDE.md",
     "$projectRoot\README.md",
     "$projectRoot\README.zh-TW.md",
     "$projectRoot\docs\DOCUMENT_AUDIENCE_INVENTORY.md",
-    "$projectRoot\docs\BIM_MCP\*.html",
-    "$projectRoot\docs\BIM_MCP\reference\*.html",
+    "$projectRoot\docs\BIM_MCP\**\*.html",
     "$projectRoot\docs\BIM_MCP\shared.js"
 )
 
@@ -728,41 +851,105 @@ $claimSites = @(
     # Tool count grand-total claims
     @{ Pattern = '共用\s*(\d+)\s*個工具';                              Truth = $toolCount;          Label = '共用 N 個工具' },
     @{ Pattern = '個\s*Domain[、，]\s*(\d+)\s*個工具';                  Truth = $toolCount;          Label = 'N 個工具 (hero 三層)' },
-    @{ Pattern = '\((\d+)\+?\s*commands?\)';                           Truth = $toolCount;          Label = '(N+ commands)' },
-    @{ Pattern = '\((\d+)\s+tools?,';                                  Truth = $toolCount;          Label = '(N tools, ...)' },
-    @{ Pattern = '封裝\s*(\d+)\s*個\s*tools?';                          Truth = $toolCount;          Label = '封裝 N 個 tools' },
+    @{ Pattern = '\((\d+)\+?\s*commands?\)';                           Truth = $toolCount;          Label = '(N+ commands)'; Dormant = $true },
+    @{ Pattern = '\((\d+)\s+tools?,';                                  Truth = $toolCount;          Label = '(N tools, ...)'; Dormant = $true },
+    @{ Pattern = '封裝\s*(\d+)\s*個\s*tools?';                          Truth = $toolCount;          Label = '封裝 N 個 tools'; Dormant = $true },
     @{ Pattern = '(\d+)\s*個\s*MCP\s*tools?\b';                        Truth = $toolCount;          Label = '個 MCP tools' },
     @{ Pattern = '(\d+)\s*個\s*原子工具';                              Truth = $toolCount;          Label = '個原子工具' },
     @{ Pattern = '(\d+)\s*個\s*語意化工具';                            Truth = $toolCount;          Label = '個語意化工具' },
     @{ Pattern = 'Tool[s]?[（(](\d+)[)）]';                             Truth = $toolCount;          Label = 'Tool（N）' },
-    @{ Pattern = '「(\d+)\s*工具編排平台';                              Truth = $toolCount;          Label = '「N 工具編排平台」' },
+    @{ Pattern = '「(\d+)\s*工具編排平台';                              Truth = $toolCount;          Label = '「N 工具編排平台」'; Dormant = $true },
     @{ Pattern = '警告：(\d+)\s*工具不該';                              Truth = $toolCount;          Label = '警告：N 工具不該' },
-    @{ Pattern = '(\d+)\s*個工具可以組合';                              Truth = $toolCount;          Label = 'N 個工具可以組合' },
+    @{ Pattern = '(\d+)\s*個工具可以組合';                              Truth = $toolCount;          Label = 'N 個工具可以組合'; Dormant = $true },
+    # tools-index.html claim sites (the page is generated, but the prose around it is not)
+    @{ Pattern = 'Tools\s*索引（(\d+)\s*個）';                       Truth = $toolCount;          Label = 'Tools 索引（N 個）' },
+    @{ Pattern = 'TOOLS INDEX[^<]*<span[^>]*>(\d+)\s*個';                 Truth = $toolCount;          Label = 'TOOLS INDEX eyebrow N 個' },
+    @{ Pattern = '>(\d+)\s+Tools</h4>';                              Truth = $toolCount;          Label = 'hub card N Tools' },
+    @{ Pattern = '(\d+)\s*個\s*MCP\s*工具完整索引';                     Truth = $toolCount;          Label = 'N 個 MCP 工具完整索引' },
+    @{ Pattern = '八類加總等於\s*(\d+)';                            Truth = $toolCount;          Label = '八類加總等於 N' },
+    @{ Pattern = '(\d+)\s*個工具攤開';                                Truth = $toolCount;          Label = 'N 個工具攤開' },
+    @{ Pattern = '(\d+)\s*個工具\s*·\s*依用途分組';                      Truth = $toolCount;          Label = 'N 個工具·依用途分組' },
+    # "N 個執行層工具" — the phrase lives in two files (shared.js PAGE_META desc, tools-index.html
+    # og:title). No pattern above matches this shape, so both copies of the number were unguarded:
+    # 7-1 could report PASS while they disagreed with each other and with the registry.
+    @{ Pattern = '(\d+)\s*個執行層工具';                               Truth = $toolCount;          Label = 'N 個執行層工具' },
     # Domain count grand-total claims
-    @{ Pattern = 'Domain Knowledge.{0,40}（(\d+)\s*個';                Truth = $domainCount; Label = 'Domain Knowledge 標題' },
-    @{ Pattern = '(\d+)\+?\s*個?\s*Domain\b';                          Truth = $domainCount; Label = 'N Domain' },
+    @{ Pattern = 'Domain Knowledge.{0,40}（(\d+)\s*個';                Truth = $domainCount; Label = 'Domain Knowledge 標題'; Dormant = $true },
+    # (?<![+\d]) excludes increment notation: "+6 Domain SOP" means six were added, not a total of six.
+    @{ Pattern = '(?<![+\d])(\d+)\+?\s*個?\s*Domain\b';                Truth = $domainCount; Label = 'N Domain' },
     @{ Pattern = '(\d+)\s*個\s*SOP';                                   Truth = $domainCount; Label = '個 SOP' },
     @{ Pattern = '(\d+)\s*個\s*domain/\*\.md';                         Truth = $domainCount; Label = '個 domain/*.md' },
     @{ Pattern = '(\d+)\s*個\s*<code>domain';                          Truth = $domainCount; Label = '個 <code>domain' },
     # Skill count grand-total claims (must require explicit grand-total context)
-    @{ Pattern = '##\s*Skills（(\d+)\s*個）';                           Truth = $skillCount;         Label = '## Skills（N 個）' },
+    # CLAUDE.md's Skills section dropped the （N 個） heading form and now states the count inline
+    # as "(54 skills; count table above is the gate)". The heading pattern below went dormant and
+    # nothing guarded the replacement until 7-13 surfaced it.
+    @{ Pattern = '(?i)\((\d+)\s+skills\b';                            Truth = $skillCount;         Label = '(N skills) inline' },
+    @{ Pattern = '##\s*Skills（(\d+)\s*個）';                           Truth = $skillCount;         Label = '## Skills（N 個）'; Dormant = $true },
     @{ Pattern = 'Skills\s*索引（(\d+)\s*個）';                         Truth = $skillCount;         Label = 'Skills 索引（N 個）' },
     @{ Pattern = '(\d+)\s*個編排層\s*Skill';                            Truth = $skillCount;         Label = 'N 個編排層 Skill' },
     @{ Pattern = '(\d+)\s*Skill\s*vs\b';                               Truth = $skillCount;         Label = 'N Skill vs ...' },
     @{ Pattern = 'Skill\s*=\s*編排（(\d+)\s*個';                        Truth = $skillCount;         Label = 'Skill = 編排（N 個' },
     @{ Pattern = 'SKILLS INDEX[^<]*<span[^>]*>(\d+)\s*個';              Truth = $skillCount;         Label = 'SKILLS INDEX eyebrow N 個' },
-    @{ Pattern = '>(\d+)\s+Skills</h4>';                                Truth = $skillCount;         Label = 'hub card N Skills' }
+    @{ Pattern = '>(\d+)\s+Skills</h4>';                                Truth = $skillCount;         Label = 'hub card N Skills' },
+
+    # --- Stage B-4 additions: expanded claim-site coverage ---
+    # Confirmed gate blind spot: existing patterns above are case-sensitive on literal
+    # "Domain"/"Skill"/"Tool" and only match a handful of exact phrase shapes, so lowercase
+    # variants (e.g. "79 個 domain SOP") and alternate shapes (e.g. "Skill（50・...)") slip
+    # through uncaught. Every pattern below was verified against the real scanned files with
+    # the same [regex] engine used by Find-ClaimMismatches before being added, specifically to
+    # confirm it only matches genuine grand-total claims and never a batch/contextual count
+    # (e.g. "2 個 domain 檔手動搬移收編" in contributors.html, or "3 個 Skill 引用"/"5 個 Skill
+    # 內" describing a subset, not the whole catalog) — those must NOT be flagged.
+    # No existing pattern above is modified, widened, or removed.
+
+    # Domain count: lowercase "domain" and alternate label shapes
+    @{ Pattern = '(?i)(\d+)\s*個\s*domain\s*SOP';                       Truth = $domainCount;        Label = '個 domain SOP (case-insensitive)' },
+    @{ Pattern = '(?i)(\d+)\s*個\s*知識層';                              Truth = $domainCount;        Label = '個知識層' },
+    @{ Pattern = '(?i)(\d+)\s+professional\s+BIM\s+SOPs?';              Truth = $domainCount;        Label = 'N professional BIM SOPs' },
+    @{ Pattern = '(?i)Domain\s*索引（(\d+)）';                           Truth = $domainCount;        Label = 'Domain 索引（N）(shared.js nav)' },
+    @{ Pattern = 'Domain[（(](\d+)[)）]';                                Truth = $domainCount;        Label = 'Domain（N）hub card' },
+    @{ Pattern = 'Skill[s]?[（(](\d+)[)）]';                             Truth = $skillCount;         Label = 'Skill（N）hub card' },
+
+    # Skill count: shapes that don't require a "編排層"/"索引" suffix (still anchored to the
+    # exact surrounding phrase, not a bare "N 個 Skill", to avoid the batch-count false
+    # positives found in contributor-template.html / architecture-v2.html / skills-index.html)
+    @{ Pattern = '本專案目前[^\d]{0,20}(\d+)\s*個\s*Skill\b';            Truth = $skillCount;         Label = '本專案目前 N 個 Skill' },
+    @{ Pattern = '(\d+)\s*個\s*Skill\s*完整索引';                        Truth = $skillCount;         Label = 'N 個 Skill 完整索引' },
+    @{ Pattern = '←\s*(\d+)\s*個\s*Skill\b';                             Truth = $skillCount;         Label = '← N 個 Skill (vault tree)' },
+    @{ Pattern = '由\s*(\d+)\s*個\s*Skill\s*編排觸發';                    Truth = $skillCount;         Label = '由 N 個 Skill 編排觸發' },
+    @{ Pattern = '本頁列\s*(\d+)\s*個\s*Skill\b';                        Truth = $skillCount;         Label = '本頁列 N 個 Skill' },
+    @{ Pattern = '(\d+)\s*個\s*Skill\s*列表';                            Truth = $skillCount;         Label = 'N 個 Skill 列表' },
+    @{ Pattern = 'CATALOG\s*·\s*(\d+)\s*個\s*Skill\b';                   Truth = $skillCount;         Label = 'CATALOG · N 個 Skill' },
+    @{ Pattern = '(\d+)\s*個\s*Skill\s*·\s*依用途分組';                   Truth = $skillCount;         Label = 'N 個 Skill · 依用途分組' },
+    @{ Pattern = '抽取\s*(\d+)\s*個\s*Skill\b';                          Truth = $skillCount;         Label = '抽取 N 個 Skill' },
+
+    # Tool count: case-insensitive "MCP Tool(s)" and an alternate "透過 N 個工具" shape
+    @{ Pattern = '(?i)(\d+)\s*個\s*MCP\s*Tools?\b';                      Truth = $toolCount;          Label = '個 MCP Tool(s) (case-insensitive)' },
+    @{ Pattern = '透過\s*(\d+)\s*個工具';                                Truth = $toolCount;          Label = '透過 N 個工具' },
+
+    # Three-layer shorthand "Skill（N・...）→ Domain（N・...）→ Tool（N・...）" (docs/BIM_MCP/index.html)
+    @{ Pattern = 'Skill（(\d+)・';                                       Truth = $skillCount;         Label = 'Skill（N・...）three-layer shorthand' },
+    @{ Pattern = 'Domain（(\d+)・';                                      Truth = $domainCount;        Label = 'Domain（N・...）three-layer shorthand' },
+    @{ Pattern = 'Tool（(\d+)・';                                        Truth = $toolCount;          Label = 'Tool（N・...）three-layer shorthand' }
 )
 
 # Resolve all paths (glob → file list)
 $scanFiles = @()
 foreach ($p in $scanPaths) {
-    if ($p -match '\*') {
+    if ($p -match '\*\*') {
+        # "<base>\**\<filter>" - every subdirectory, any depth.
+        $base   = $p -replace '\\\*\*\\[^\\]+$', ''
+        $filter = ($p -split '\\')[-1]
+        $scanFiles += Get-ChildItem -Path $base -Filter $filter -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+    } elseif ($p -match '\*') {
         $scanFiles += Get-ChildItem -Path $p -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
     } elseif (Test-Path -LiteralPath $p) {
         $scanFiles += $p
     }
 }
+$scanFiles = $scanFiles | Sort-Object -Unique
 # Apply skip filter
 $scanFiles = $scanFiles | Where-Object {
     $f = $_
@@ -773,11 +960,15 @@ $scanFiles = $scanFiles | Where-Object {
 function Find-ClaimMismatches {
     param([array]$Files, [hashtable]$Site)
     $mismatches = @()
+    # Build the regex once, and probe the whole file before splitting it into lines: most
+    # (pattern, file) pairs never match at all, and line-splitting every ~50-pattern pass over a
+    # 2000-line page is where the runtime goes. Same verdicts, far less work.
+    $rx = [regex]$Site.Pattern
     foreach ($f in $Files) {
         $text = Read-FileText $f
         if (-not $text) { continue }
+        if (-not $rx.IsMatch($text)) { continue }
         $lines = $text -split "`r?`n"
-        $rx = [regex]$Site.Pattern
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $matches = $rx.Matches($lines[$i])
             foreach ($m in $matches) {
@@ -801,7 +992,7 @@ foreach ($site in $toolSites) {
     $toolMismatches += Find-ClaimMismatches -Files $scanFiles -Site $site
 }
 Write-Check "All tool-count claims == $toolCount" ($toolMismatches.Count -eq 0) `
-    $(if ($toolMismatches.Count -gt 0) { "$($toolMismatches.Count) mismatch(es). First:`n$($toolMismatches -join "`n" | Select-Object -First 1)`nRun script for full list." } else { "" })
+    $(if ($toolMismatches.Count -gt 0) { "$($toolMismatches.Count) mismatch(es)." } else { "" })
 if ($toolMismatches.Count -gt 0) { $toolMismatches | ForEach-Object { Write-Host $_ -ForegroundColor DarkYellow } }
 
 # 7-2: Domain count exact-match
@@ -1092,66 +1283,221 @@ else {
     if ($mirrorProblems.Count -gt 0) { $mirrorProblems | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
 }
 
-# 7-13: Tool -> C# handler cross-reference
-#
-# A tool can be fully registered (schema in MCP-Server/src/tools/*.ts, passes 9-1's annotation
-# checks, counted correctly by 7-1) and still be dead on arrival: MCP/Core/CommandExecutor.cs
-# dispatches on request.CommandName via a switch with no default case handler for it, so every
-# call throws NotImplementedException. This has already happened twice in this repo
-# (check_sanitary_fixture_requirements, renumber_rooms_by_level shipped with a Claude skill
-# teaching an AI client to call it) and none of the existing checks would have caught it --
-# 7-1 counts tools, it does not resolve them.
-#
-# Two things this check must get right or it becomes noise the next commit gets ignored on:
-#   1. C# case labels live in more than just CommandExecutor.cs -- structural, curtain-wall,
-#      dimension etc. each have their own case blocks in MCP/Core/Commands/*.cs partials, all
-#      contributing to the same switch. Scan every *.cs under MCP/, not just the main file.
-#   2. MCP-Server/src/tools/revit-tools.ts remaps a few tool names before they reach C# (e.g.
-#      query_elements_with_filter -> query_elements) -- checking the raw tool name against the
-#      C# case set would misreport that remap as an orphan. Parse the remap out of the bridge
-#      file itself rather than hardcoding it, so a new remap added later is picked up for free.
-Write-Host ""
-Write-Host "  7-13. Tool -> C# handler cross-reference:" -ForegroundColor Cyan
-$registeredTools = Get-RegisteredToolNames
-if (-not $registeredTools) {
-    Write-Skip "Tool -> C# handler cross-reference" "Built registry unavailable - run npm run build in MCP-Server first"
-}
-else {
-    $csHandlers = New-Object 'System.Collections.Generic.HashSet[string]'
-    $csFiles = Get-ChildItem -Path (Join-Path $projectRoot 'MCP') -Recurse -Filter '*.cs' -File -ErrorAction SilentlyContinue
-    foreach ($f in $csFiles) {
-        $text = Read-FileText $f.FullName
-        if (-not $text) { continue }
-        foreach ($m in [regex]::Matches($text, '(?m)^\s*case\s*"([a-z0-9_-]+)"\s*:')) {
-            [void]$csHandlers.Add($m.Groups[1].Value)
-        }
-    }
-
-    $bridgeRemap = @{}
-    $bridgePath = Join-Path $projectRoot 'MCP-Server\src\tools\revit-tools.ts'
-    $bridgeText = Read-FileText $bridgePath
-    if ($bridgeText) {
-        foreach ($m in [regex]::Matches($bridgeText, 'toolName\s*===\s*"([a-z0-9_-]+)"\s*\?\s*"([a-z0-9_-]+)"')) {
-            $bridgeRemap[$m.Groups[1].Value] = $m.Groups[2].Value
-        }
-    }
-
-    $orphans = @()
-    foreach ($name in $registeredTools) {
-        $target = if ($bridgeRemap.ContainsKey($name)) { $bridgeRemap[$name] } else { $name }
-        if (-not $csHandlers.Contains($target)) {
-            $orphans += $(if ($target -ne $name) { "$name (remapped to $target)" } else { $name })
-        }
-    }
-
-    Write-Check "All $($registeredTools.Count) registered tools resolve to a case handler" ($orphans.Count -eq 0) `
-        $(if ($orphans.Count -gt 0) { "$($orphans.Count) orphan(s) - schema exists but MCP/Core/CommandExecutor.cs (or a Commands/*.cs partial) has no matching case, so every call throws NotImplementedException. Add the handler, or remove the tool definition." } else { "" })
-    if ($orphans.Count -gt 0) { $orphans | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
-}
-
 # ─────────────────────────────────────────────
 # Phase 8: Document Audience and Encoding Hygiene
 # ─────────────────────────────────────────────
+Write-Host ""
+# 7-13: Claim-pattern liveness
+Write-Host ""
+Write-Host "  7-13. Claim-pattern liveness:" -ForegroundColor Cyan
+# A pattern that matches nothing and a pattern that matches N correct sites both report PASS.
+# That makes silent coverage loss invisible: reword a page and its guard quietly stops guarding.
+# Dormant = $true means "the claim site is known to be gone" - an explicit, reviewable decision.
+$deadPatterns = @()
+$activeSites  = @($claimSites | Where-Object { -not $_.Dormant })
+$dormantCount = @($claimSites | Where-Object { $_.Dormant }).Count
+# Read each file once up front instead of once per pattern (48 patterns x 19 files was 900+ reads).
+$scanTexts = @()
+foreach ($f in $scanFiles) {
+    $t = Read-FileText $f
+    if ($t) { $scanTexts += $t }
+}
+foreach ($site in $activeSites) {
+    $rx = [regex]$site.Pattern
+    $found = $false
+    foreach ($t in $scanTexts) {
+        if ($rx.IsMatch($t)) { $found = $true; break }
+    }
+    if (-not $found) { $deadPatterns += $site.Label }
+}
+Write-Check "All $($activeSites.Count) active claim patterns still match a live site ($dormantCount dormant)" ($deadPatterns.Count -eq 0) `
+    $(if ($deadPatterns.Count -gt 0) { "$($deadPatterns.Count) pattern(s) match nothing. Either the claim was reworded (find it and re-guard it) or the site is gone (mark Dormant = `$true)." } else { "" })
+if ($deadPatterns.Count -gt 0) { $deadPatterns | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
+
+Write-Host ""
+# 7-14: Real tools <-> BIM_MCP tools-index
+Write-Host ""
+Write-Host "  7-14. Real tools -> BIM_MCP tools-index (exactly one card each):" -ForegroundColor Cyan
+# Domain (7-9) and Skill (7-10) were enumerated against the hub; Tool - the largest layer - was not.
+# 7-1 only checks that the tool-count NUMBER is stated correctly; a correct count is compatible with zero
+# tools being documented. This check closes that gap by enumerating, not counting.
+$toolsIndex = Join-Path $projectRoot "docs\BIM_MCP\reference\tools-index.html"
+$toolNames  = Get-ToolNames
+if (-not $toolNames) {
+    Write-Skip "tools-index enumeration" "runtime tool registry unavailable (run npm run build)"
+}
+elseif (-not (Test-Path -LiteralPath $toolsIndex)) {
+    Write-Check "Every tool has exactly one tools-index card" $false "docs/BIM_MCP/reference/tools-index.html is missing"
+}
+else {
+    $indexText = Read-FileText $toolsIndex
+    $cardProblems = @()
+    foreach ($t in $toolNames) {
+        $hits = ([regex]('data-tool="' + [regex]::Escape($t) + '"')).Matches($indexText).Count
+        if ($hits -ne 1) { $cardProblems += "$t : $hits card(s), expected exactly 1" }
+    }
+    # Reverse direction: a card with no matching runtime tool is just as wrong.
+    $carded = @(([regex]'data-tool="([^"]+)"').Matches($indexText) | ForEach-Object { $_.Groups[1].Value })
+    foreach ($c in $carded) {
+        if ($toolNames -notcontains $c) { $cardProblems += "$c : card exists but no such runtime tool" }
+    }
+    # The page is generated, so its own derived numbers (badge tallies, per-category counts) must
+    # agree with the cards it actually contains. Guarding these with more regex claim-sites would be
+    # the hand-written-list trap again; checking generation self-consistency is the structural answer.
+    $cardCount = ([regex]'class="tool-card"').Matches($indexText).Count
+    $badge = @{
+        readonly    = ([regex]'tool-badge readonly').Matches($indexText).Count
+        write       = ([regex]'tool-badge write').Matches($indexText).Count
+        destructive = ([regex]'tool-badge destructive').Matches($indexText).Count
+    }
+    $stated = @{}
+    foreach ($pair in @(@('readonly', '唯讀'), @('write', '會寫入'), @('destructive', '破壞性'))) {
+        $m = ([regex]("<strong>" + $pair[1] + "</strong>（(\d+) 個）")).Match($indexText)
+        if ($m.Success) { $stated[$pair[0]] = [int]$m.Groups[1].Value }
+    }
+    foreach ($k in @('readonly', 'write', 'destructive')) {
+        if (-not $stated.ContainsKey($k)) {
+            $cardProblems += "badge tally for '$k' is stated nowhere on the page"
+        }
+        elseif ($stated[$k] -ne $badge[$k]) {
+            $cardProblems += "badge tally mismatch for '$k': prose says $($stated[$k]), cards carry $($badge[$k])"
+        }
+    }
+    $badgeSum = $badge.readonly + $badge.write + $badge.destructive
+    if ($badgeSum -ne $cardCount) {
+        $cardProblems += "every card must carry exactly one badge: $cardCount cards but $badgeSum badges"
+    }
+    $catNums = @(([regex]'class="cat-header">[^<]*（(\d+) 個）').Matches($indexText) |
+        ForEach-Object { [int]$_.Groups[1].Value })
+    $catSum = ($catNums | Measure-Object -Sum).Sum
+    if ($catNums.Count -eq 0) {
+        $cardProblems += "no category headers found - the page structure changed"
+    }
+    elseif ($catSum -ne $cardCount) {
+        $cardProblems += "category headers sum to $catSum but the page has $cardCount cards"
+    }
+
+    Write-Check "Every one of $($toolNames.Count) tools has exactly one tools-index card, and the page's own tallies agree" ($cardProblems.Count -eq 0) `
+        $(if ($cardProblems.Count -gt 0) { "$($cardProblems.Count) problem(s). Regenerate the page from registerRevitTools() rather than hand-editing." } else { "" })
+    if ($cardProblems.Count -gt 0) { $cardProblems | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
+}
+
+Write-Host ""
+# 7-15: Registered tool -> C# dispatcher case reconciliation (forward only)
+Write-Host ""
+Write-Host "  7-15. Registered tool -> dispatcher case (TS declares, C# must implement):" -ForegroundColor Cyan
+# Why this exists: a tool the TS layer registers but the C# dispatcher cannot execute reaches
+# MCP/Core/CommandExecutor.cs's `default:` and throws NotImplementedException($"未實作的命令: ...")
+# at CALL time - loud to the caller, invisible to QA/QC. This class of defect has recurred
+# (issue #111, again #125). This check catches it before shipping instead of at a user's desk.
+#
+# Direction is FORWARD ONLY (registered tool -> some dispatcher case), by design, not oversight:
+# MCP/Core/CommandExecutor.cs plus every MCP/Core/Commands/*.cs partial carries far more
+# `case "..."` string labels (~230+) than there are registered tools (the current registry count), because the same
+# switch-on-string idiom is reused for internal, non-tool things too (e.g. filter operators like
+# "equals"/"contains"/"not_equals" inside the element-query evaluator). A reverse check - "every
+# case label must trace to a tool" - would be pure noise against that gap, flagging dozens of
+# legitimate internal cases as if they were dead tools. So only the direction that maps to a real
+# defect (declared-but-unreachable tool) is checked here.
+if (-not $toolNames) {
+    Write-Skip "Tool -> dispatcher reconciliation" "runtime tool registry unavailable (run npm run build)"
+}
+else {
+    # Rename map is PARSED out of MCP-Server/src/tools/revit-tools.ts, not hardcoded, so a future
+    # rename doesn't require editing this check. Today that file rewrites exactly one tool name
+    # before sending it to C# - a ternary in executeRevitTool():
+    #   const commandName = toolName === "query_elements_with_filter" ? "query_elements" : toolName;
+    # Comparing raw tool names without applying this map would falsely flag that redirect as an
+    # orphan (registered name query_elements_with_filter has no case of that name - only
+    # query_elements does).
+    $revitToolsTsPath = Join-Path $projectRoot "MCP-Server\src\tools\revit-tools.ts"
+    $renameMap = @{}
+    $revitToolsTsText = Read-FileText $revitToolsTsPath
+    if ($revitToolsTsText) {
+        $renameRx = [regex]'toolName\s*===\s*"([^"]+)"\s*\?\s*"([^"]+)"\s*:\s*toolName'
+        foreach ($m in $renameRx.Matches($revitToolsTsText)) { $renameMap[$m.Groups[1].Value] = $m.Groups[2].Value }
+    }
+
+    # C# case labels: CommandExecutor.cs + every MCP/Core/Commands/*.cs, GLOBBED - never a hand-typed
+    # file list. A hand-typed list of "the partials that carry case labels" was already wrong once
+    # (issue #125's reporter named six; the actual number is eight) and a hardcoded list rots the
+    # same way again the next time a partial is added or a case moves between files.
+    $dispatcherFiles = @(Join-Path $projectRoot "MCP\Core\CommandExecutor.cs") +
+        @(Get-ChildItem -Path "$projectRoot\MCP\Core\Commands\*.cs" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    # Case labels are matched WITHOUT a `^` line-start anchor and AFTER stripping comments - two
+    # bugs found together by inspector review (loop-up S5 correction pass):
+    #  1) MAJOR silent false-negative: `/* ... */` block comments (and `// ...` line comments) were
+    #     never stripped before matching, so a case commented out - e.g. `/* TODO: case "x": */` -
+    #     still counted as "implemented". A dispatcher case inside a comment cannot execute; the real
+    #     dispatcher would still throw NotImplementedException while this check reported PASS.
+    #     Comments MUST be stripped before the case-label scan, not left to chance.
+    #  2) minor: a `^\s*` anchor only finds the FIRST case label on a physical line, missing any
+    #     second-or-later label on lines like `case "a": case "b":`. That direction is fail-safe for
+    #     a real orphan (extra unmatched labels only shrink the orphan set, never hide a genuine
+    #     orphan), but it silently defeats the QUARANTINE DRIFT self-check: a quarantined tool
+    #     implemented as a second label on a shared line would keep WARNing forever instead of
+    #     FAILing as drifted. Matching every occurrence in the text (not anchored to line start)
+    #     fixes both; the HashSet already de-duplicates.
+    $blockCommentRx = [regex]'(?s)/\*.*?\*/'
+    $lineCommentRx = [regex]'//[^\r\n]*'
+    $caseLabelRx = [regex]'case\s+"([^"]+)"\s*:'
+    $dispatcherCaseLabels = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($f in $dispatcherFiles) {
+        $text = Read-FileText $f
+        if (-not $text) { continue }
+        # Strip block comments first (they can span lines), then line comments on what remains.
+        # Block comments are replaced with a space, not removed outright, so tokens on either side
+        # of a stripped comment never accidentally fuse into a new match.
+        $stripped = $blockCommentRx.Replace($text, ' ')
+        $stripped = $lineCommentRx.Replace($stripped, '')
+        foreach ($m in $caseLabelRx.Matches($stripped)) { [void]$dispatcherCaseLabels.Add($m.Groups[1].Value) }
+    }
+
+    # Quarantine: a list of NAMED, REASONED exceptions to a still-live check - never a filter
+    # applied before the check runs. Issue #111 explicitly rejected a "known unimplemented" list
+    # that removes tools from consideration at registration time, because that demotes "declaration
+    # and implementation disagree" from a bug to a permanent normal state. This list does the
+    # opposite: the tool stays fully visible in tools/list and in $toolNames above, the mismatch
+    # stays on the books, and the reason prints as a WARN on every single run.
+    $knownUnimplemented = @(
+        @{ Name = 'check_sanitary_fixture_requirements'; Reason = 'Registered at MCP-Server/src/tools/room-tools.ts:300. No domain/*.md defines a sanitary-fixture-count-by-building-occupancy table, and CLAUDE.md Domain Method Compliance forbids supplying that table from model knowledge - so it cannot be implemented right now. It cannot be unregistered either: that would drop the tool count by one and force a CLAUDE.md count-table edit, out of scope here. Pending: an authoritative legal source, requested from the maintainer by the issue reporter.' }
+    )
+    $knownUnimplementedNames = @($knownUnimplemented | ForEach-Object { $_.Name })
+
+    $orphans = @()
+    $quarantinedStillOrphan = @()
+    foreach ($t in $toolNames) {
+        $mappedName = if ($renameMap.ContainsKey($t)) { $renameMap[$t] } else { $t }
+        if (-not $dispatcherCaseLabels.Contains($mappedName)) {
+            if ($knownUnimplementedNames -contains $t) { $quarantinedStillOrphan += $t }
+            else { $orphans += $t }
+        }
+    }
+
+    # Drift self-check, modeled on 3-4's $pathScanSkip per-entry self-check: a quarantined tool that
+    # is NO LONGER an orphan (someone implemented it) must FAIL, not silently keep WARNing. A stale
+    # quarantine entry swallowing a now-working tool is exactly the rot this gate exists to prevent.
+    $driftedQuarantine = @($knownUnimplemented | Where-Object { $quarantinedStillOrphan -notcontains $_.Name })
+
+    # One combined PASS/FAIL verdict covering both failure modes this gate guards against: a real
+    # (un-quarantined) orphan, or a quarantine entry that has drifted stale. Either alone must FAIL.
+    $reconcileProblems = @()
+    if ($orphans.Count -gt 0) { $reconcileProblems += "$($orphans.Count) registered tool(s) have no dispatcher case: $($orphans -join ', ')" }
+    if ($driftedQuarantine.Count -gt 0) { $reconcileProblems += "$($driftedQuarantine.Count) `$knownUnimplemented entry(ies) now HAVE a dispatcher case - remove from the quarantine list in scripts/verify-qaqc.ps1: $(($driftedQuarantine | ForEach-Object { $_.Name }) -join ', ')" }
+
+    Write-Check "Registered tools reconcile against the C# dispatcher ($($dispatcherCaseLabels.Count) case labels across $($dispatcherFiles.Count) dispatcher files, $($renameMap.Count) rename(s) applied, $($knownUnimplemented.Count) quarantined)" ($reconcileProblems.Count -eq 0) `
+        $(if ($reconcileProblems.Count -gt 0) { $reconcileProblems -join ' | ' } else { "" })
+    if ($orphans.Count -gt 0) {
+        $orphans | ForEach-Object { Write-Host "    $_ : no matching case in MCP/Core/CommandExecutor.cs or MCP/Core/Commands/*.cs" -ForegroundColor Red }
+    }
+
+    foreach ($q in $knownUnimplemented) {
+        if ($quarantinedStillOrphan -contains $q.Name) {
+            Write-Warn "Quarantined orphan tool: $($q.Name)" $q.Reason
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "[Phase 8] Document Audience and Encoding Hygiene" -ForegroundColor Yellow
 Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray

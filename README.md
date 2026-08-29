@@ -14,7 +14,7 @@ Revit MCP lets AI clients call Autodesk Revit tools through the Model Context Pr
 
 ## What is this?
 
-Talk to Revit in plain language. Ask your AI client to *"dimension every wall on this view"* or *"check the curtain-wall elevations"*, and Revit does it — through **174 MCP tools** backed by **76 professional BIM SOPs** (building code, quantity take-off, compliance checks).
+Talk to Revit in plain language. Ask your AI client to *"dimension every wall on this view"* or *"check the curtain-wall elevations"*, and Revit does it — through **180 MCP tools** backed by **79 professional BIM SOPs** (building code, quantity take-off, compliance checks).
 
 **Who it's for:** BIM engineers and architects who use Revit and want AI-assisted, standards-based workflows. You'll need Revit (2022–2026) on Windows and to be comfortable installing an add-in.
 
@@ -33,8 +33,8 @@ Questions or want to show what you built? → **[Discussions](https://github.com
 
 | Item | Count | Source |
 |---|---:|---|
-| Runtime MCP tools | 174 | `registerRevitTools()` in `MCP-Server/src/tools/index.ts` |
-| Domain SOP files | 76 | `domain/*.md` except `README.md`, plus `domain/references/*.md` |
+| Runtime MCP tools | 180 | `registerRevitTools()` in `MCP-Server/src/tools/index.ts` |
+| Domain SOP files | 79 | `domain/*.md` except `README.md`, plus `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
 When these numbers change, update `CLAUDE.md`, `README.zh-TW.md`, this file, `docs/DOCUMENT_AUDIENCE_INVENTORY.md`, and run:
@@ -229,6 +229,8 @@ Replace `<YOUR_PROJECT_PATH>` in the templates with the actual project path on y
 ### Switching Between AI Clients
 
 The Revit-side WebSocket service holds an exclusive lock: only one AI client can be connected at a time. A second client that tries to connect is cleanly rejected (HTTP 409), not swapped in — the first connection stays stable. Multiple AI clients are therefore used by switching, not concurrently:
+
+Before that lock check even runs, any handshake carrying a browser `Origin` header is rejected outright with HTTP 403. This closes a separate risk: a malicious page open in your browser could otherwise drive the add-in without your knowledge, since WebSocket handshakes aren't covered by the browser's same-origin policy. It has no settings opt-out and does not affect the MCP bridge, which never sends an `Origin` header.
 
 1. In the Revit ribbon, click the **"切換/釋放連線" (Switch/Release Connection)** button to release the current connection.
 2. Start or reconnect the other AI client; once its MCP server connects to `localhost:8964`, it takes the lock.

@@ -393,7 +393,22 @@ namespace RevitMCP.Core
                     var pts = pl.GetCoordinates().ToList();
                     var c = MakeRect(pts);                          // 嚴格矩形優先（向後相容）
                     if (c == null && pts.Count >= 3)                // 退而求其次：通用外接矩形
-                        c = BuildColFromPoints(pts, LongestEdgeAngle(pts), diag, "PolyLine(" + pts.Count + "pt)");
+                    {
+                        // #118：這道 guard 排除的是「去重後恰為 4 點但不構成矩形（梯形/歪斜四邊形）」：
+                        // 這種形狀若仍交給 BuildColFromPoints 的外接矩形近似，會硬套成尺寸錯誤的柱，應跳過並記錄診斷。
+                        // fallback 本身保留，是為了去重後相異點數 ≠ 4 的形狀（三角形、多邊形、以及含共線冗餘頂點的矩形）；
+                        // BuildColFromPoints 自己在第 486 行也帶與 MakeRect 相同的 100-3000mm 尺寸窗，所以被尺寸窗擋下的真矩形在 fallback 也一樣進不來，不是這個 guard 在援救的對象。
+                        var uniq = DedupPoints(pts);
+                        if (uniq.Count == 4 && !IsRectangularQuad(uniq))
+                        {
+                            if (diag != null)
+                                diag.Add("PolyLine(" + pts.Count + "pt) skip: 非矩形四邊形(梯形/歪斜), unique=" + uniq.Count);
+                        }
+                        else
+                        {
+                            c = BuildColFromPoints(pts, LongestEdgeAngle(pts), diag, "PolyLine(" + pts.Count + "pt)");
+                        }
+                    }
                     if (c != null) res.Add(c);
                 }
                 else if (obj is GeometryInstance gi)
@@ -514,7 +529,8 @@ namespace RevitMCP.Core
             }
         }
 
-        static ColData MakeRect(List<XYZ> points)
+        // 去重複點（0.001 ft 容差）。MakeRect 與 Extract() 的 fallback 分流共用，避免邏輯分岔。
+        static List<XYZ> DedupPoints(List<XYZ> points)
         {
             var pts = new List<XYZ>();
             foreach (var p in points)
@@ -523,17 +539,31 @@ namespace RevitMCP.Core
                 foreach (var q in pts) { if (p.DistanceTo(q) < 0.001) { dup = true; break; } }
                 if (!dup) pts.Add(p);
             }
-            if (pts.Count != 4) return null;
+            return pts;
+        }
 
+        // 判斷「已去重」的 4 點依序連接是否構成矩形（每個角近似直角，且無退化邊）。
+        // 供 MakeRect 與 Extract() 的 fallback 分流共用，避免邏輯分岔。
+        static bool IsRectangularQuad(List<XYZ> uniquePts)
+        {
+            if (uniquePts.Count != 4) return false;
             for (int i = 0; i < 4; i++)
             {
-                var ab = pts[(i + 1) % 4] - pts[i];
-                var bc = pts[(i + 2) % 4] - pts[(i + 1) % 4];
+                var ab = uniquePts[(i + 1) % 4] - uniquePts[i];
+                var bc = uniquePts[(i + 2) % 4] - uniquePts[(i + 1) % 4];
                 double la = Math.Sqrt(ab.X * ab.X + ab.Y * ab.Y);
                 double lb = Math.Sqrt(bc.X * bc.X + bc.Y * bc.Y);
-                if (la < 0.001 || lb < 0.001) return null;
-                if (Math.Abs((ab.X * bc.X + ab.Y * bc.Y) / (la * lb)) > 0.05) return null;
+                if (la < 0.001 || lb < 0.001) return false;
+                if (Math.Abs((ab.X * bc.X + ab.Y * bc.Y) / (la * lb)) > 0.05) return false;
             }
+            return true;
+        }
+
+        static ColData MakeRect(List<XYZ> points)
+        {
+            var pts = DedupPoints(points);
+            if (pts.Count != 4) return null;
+            if (!IsRectangularQuad(pts)) return null;
 
             XYZ e1 = pts[1] - pts[0];
             XYZ e2 = pts[2] - pts[1];

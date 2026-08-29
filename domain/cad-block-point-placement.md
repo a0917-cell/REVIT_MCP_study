@@ -2,14 +2,16 @@
 name: cad-block-point-placement
 description: "CAD 圖塊（Block/INSERT）插入點批次放置 Revit 點位族群（FamilyInstance）的通用 SOP：適用灑水頭/閥件等重複設備圖塊。discover(get_dwg_block_instances)/preview(preview_family_instances_from_dwg_blocks)/create(create_family_instances_from_dwg_blocks) 三工具拆分，preview 唯讀回傳可檢查的座標鏈（Block insertion point → Block transform → ImportInstance TotalTransform → Revit model point）+ ready/duplicate/unsupported_family/review_required 狀態；**transform 不可信時停止建立、不猜 correction**。v1 僅支援已連結（Linked）DWG，Imported DWG 留待後續。與 dwg-column-import（矩形輪廓）、dwg-beam-import（雙線中心線）互補，非取代。觸發於 cad 圖塊放置、block 轉族群、灑水頭建模、閥件建模、point placement from CAD block、INSERT to FamilyInstance。"
 metadata:
-  version: "0.2"
-  updated: "2026-08-10"
+  version: "0.3"
+  updated: "2026-08-28"
   created: "2026-07-28"
   contributors:
-    - "NicheSam (SC REVIT, 待確認真名)"
+    - "NicheSam (SC REVIT, 待確認真名) —— issue #100 規格與實測資料提供者"
+    - "@Rumi-3653 —— issue #113／PR #115 三工具實作者（PR #115 為 #114 reopen：原帳號被 GitHub 標記，同一貢獻者換新帳號重新提交，非內容問題）"
   references:
     - "Issue #100（作者 @NicheSam, SC REVIT）"
     - "Issue #100 留言 2026-08-05（id 5190268672）：四個 TODO 補值 + v1 政策裁決依據 + Revit 2024 A$C87ebd845 實測（484 筆命中／20 筆試放與獨立回查）"
+    - "Issue #113（三工具實作追蹤）／PR #115（@Rumi-3653，實作 PR，reopen of #114）"
   related:
     - dwg-column-import.md
     - dwg-beam-import.md
@@ -20,13 +22,24 @@ metadata:
 
 # CAD 圖塊插入點放置 FamilyInstance SOP
 
+> ## ⚠️ 實作狀態（2026-08-28）：已合併、尚未在真實 Revit 環境驗證
+>
+> 三工具已由 @Rumi-3653 依本規格於 issue #113／PR #115 實作合併（`MCP/Core/CadBlockPlacementExecutor.cs` + `MCP-Server/src/tools/cad-block-placement-tools.ts` + `MCP/Core/CommandExecutor.cs` 三個 dispatcher case）。**這台環境沒有連上 Revit（`localhost:8964` 未監聽），貢獻者本人也沒有對真實 Revit 執行過這三支工具**——目前只驗證過原始碼層面：C# 端 R22–R26 五組建置皆 0 error、`registerRevitTools()` 註冊無重複、工具標註（title / readOnlyHint / destructiveHint）符合規範。以下四項規格陳述**尚未被任何真實 Revit session 驗證過**，其中第 1 項是 issue #113 明列的**必要驗收項**：
+>
+> 1. **主 `Transaction` + 逐筆 `SubTransaction` 的部分失敗隔離**（§4.4／§7 已標記）——規格來源（issue #100 2026-08-05 留言）的實測通道並未套用 `SubTransaction`，20 筆試放是一次性全部建立、獨立回查 20/20 通過，因此「單筆失敗不回滾其他成功項目」這個行為從未被真實測試過，只是程式碼裡寫了 `SubTransaction` 迴圈。
+> 2. **`TryGetBlockDisplayName` 的 blockName 來源可靠性**——目前以 `GeometryInstance.GraphicsStyleId` 對應的 `GraphicsStyleCategory` 名稱 best-effort 取得，取不到時 fallback 為合成序號標籤 `Block#N`；這個來源是否足以對應真實 DWG 的 Block 種類（例如 issue #100 提到的 `A$C87ebd845` 這類 AutoCAD 自動命名），需要對真實已連結 DWG 實測才能確認。
+> 3. **`OneLevelBased` 的 offset 記帳**——`NewFamilyInstance` 目前以 `level.Elevation + offsetMm 換算後的 feet` 作為 Z 座標傳入，Revit 自身對 level-based instance 的 offset 記帳方式（是否等於這個 Z 值、還是另外疊加 instance 的 Offset 參數）需要真機放置後 read-back 驗證，尚未驗證過。
+> 4. **`unsupported_family` / `untrustworthy_transform` / duplicate 三種負向路徑**——issue #100 的兩輪實測都只涵蓋全新、`OneLevelBased`、transform 可信的插入點；非 `OneLevelBased` 族群、非等比例縮放或已失連的 Linked DWG、以及 `duplicate_existing`／`duplicate_in_batch` 的實際觸發，目前都沒有真實案例紀錄，行為只存在於程式碼與規格文字裡。
+>
+> 在這四項對真實 Revit + 已連結 DWG 驗證完成前，**不要在回答、log 或任何文件中宣稱這三支工具「已測試」「已驗證」或「已通過 Revit 驗收」**。使用前請先在測試模型（不存檔）上，依 §2 的兩道斷點小批次試跑，並實際核對 §7 QA 清單逐項打勾。
+
 把 CAD 圖面中重複出現的設備圖塊（Block/INSERT，例如灑水頭符號、閥件符號）批次轉成 Revit 點位式 `FamilyInstance`。來源 issue #100（作者 @NicheSam, SC REVIT）。對應工具 `discover`/`preview`/`create` 三段，工具名稱已定案：
 
 - `get_dwg_block_instances`（discover，唯讀盤點）
 - `preview_family_instances_from_dwg_blocks`（preview，唯讀）
 - `create_family_instances_from_dwg_blocks`（create，寫入）
 
-C# 端（`MCP/Core/Commands/`）與對應的 `MCP-Server/src/tools/` 模組**尚未實作**——本文件僅為 domain SOP 規格，待 @NicheSam 依此規格提交實作 PR 後，由該 PR 補上實際檔案路徑與本文件末尾「參考 / Reference」章節、frontmatter 的 `referenced_by`。此流程是**通用 Block→FamilyInstance 點位放置**，與 `domain/dwg-column-import.md`（矩形輪廓翻模結構柱）、`domain/dwg-beam-import.md`（雙線中心線翻模結構樑）互補，不取代任一方。
+C# 端實作位於 `MCP/Core/CadBlockPlacementExecutor.cs`，對應 `MCP-Server/src/tools/cad-block-placement-tools.ts` 的工具定義與 `MCP/Core/CommandExecutor.cs` 的三個 dispatcher case，由 @Rumi-3653 依本規格於 issue #113／PR #115 提交（PR #115 是 #114 的 reopen——原帳號被 GitHub 標記，同一貢獻者換新帳號重新提交，非內容問題）。**已驗證**：R22–R26 五組建置皆 0 error、`registerRevitTools()` 註冊無重複、工具標註符合規範。**尚未驗證**：見文件開頭狀態橫幅列出的四項——正式對真實 Revit + 已連結 DWG 執行前仍視同未驗證。此流程是**通用 Block→FamilyInstance 點位放置**，與 `domain/dwg-column-import.md`（矩形輪廓翻模結構柱）、`domain/dwg-beam-import.md`（雙線中心線翻模結構樑）互補，不取代任一方。
 
 > **核心原則（與 AI 協作）**：座標鏈（Block insertion point → Block transform → ImportInstance TotalTransform）**不可信時，一律回傳明確警告並停止建立，絕不由 AI 猜測或套用 correction**。這是本工具成立的分水嶺——寧可讓使用者手動核對重連 CAD，也不允許在座標鏈不可信的情況下批次落點。
 
@@ -185,7 +198,7 @@ TODO 待補：目前實測紀錄中**沒有**具體的 `duplicate`（`duplicate_
 - [ ] **斷點 2**：使用者已明確確認建立，`create` 呼叫參數與 preview 完全一致
 - [ ] `create` 回傳的每個 ElementId 已逐一獨立查詢驗證存在
 - [ ] 未使用 Idling 事件做非同步輪詢確認結果（同步、確定性驗證）
-- [ ] **尚未實測驗證項**：主 `Transaction` + 逐筆 `SubTransaction` 的「單筆失敗不回滾其他」——2026-08-05 動態試放通道未套用 SubTransaction，此項待正式 `create_family_instances_from_dwg_blocks` 實作後補測（見 §4.4）
+- [ ] **尚未實測驗證項**：主 `Transaction` + 逐筆 `SubTransaction` 的「單筆失敗不回滾其他」——2026-08-05 動態試放通道未套用 SubTransaction；`create_family_instances_from_dwg_blocks` 已於 PR #115 實作（含 SubTransaction 迴圈），但**仍未對真實 Revit 執行過**，此項待真實 Revit 環境補測（見 §4.4、文件開頭狀態橫幅）
 - [ ] transform 殘差 0 mm 不得被誤讀為工程位置正確：已額外確認 Linked DWG 對位、同名 Block 原點一致、Block／FamilySymbol mapping 正確（見 §3 警告）
 
 ---
@@ -195,4 +208,4 @@ TODO 待補：目前實測紀錄中**沒有**具體的 `duplicate`（`duplicate_
 - 相關 domain：`domain/dwg-column-import.md`（矩形輪廓翻模結構柱，互補而非取代）、`domain/dwg-beam-import.md`（雙線中心線翻模結構樑，互補而非取代）、`domain/tool-capability-boundary.md`（工具能力邊界原則）
 - 相關既有工具（非本流程專屬，但同屬 CAD/ImportInstance 情境，供對照）：`link_cad_to_view`、`link_cads_by_floor`（`MCP-Server/src/tools/cad-link-tools.ts`）——負責把 DWG/DXF 連結到視圖，是本流程 §1 前置條件「CAD 已連結」的上游步驟，但**不做**本文件描述的 Block 插入點掃描／放置。
 - SC REVIT 端參考路徑（供實作 PR 的工程邏輯對照，**只取邏輯、不移植 UI／預覽群組／人工拖曳狀態**）：`dwg_block_reader.py`、`revit_addin/src/RfaMetadataApplication.cs`、`revit_addin/src/Handlers/CadPointHandler.cs`。
-- 本流程 `discover`/`preview`/`create` 的工具名稱已定案（見 §2）：`get_dwg_block_instances`／`preview_family_instances_from_dwg_blocks`／`create_family_instances_from_dwg_blocks`。**`MCP-Server/src/tools/` 對應模組與 `MCP/Core/Commands/` 的 C# executor 路徑尚未建立**——issue #100 截至 2026-08-05 的留言明確表示「本次先提供規格與實測資料供審閱，尚未提交 MCP 程式 PR」，因此本節與 frontmatter 的 `referenced_by` 待 @NicheSam 後續實作 PR 提供實際路徑後再補。
+- 本流程 `discover`/`preview`/`create` 的工具名稱已定案（見 §2）：`get_dwg_block_instances`／`preview_family_instances_from_dwg_blocks`／`create_family_instances_from_dwg_blocks`。實作路徑（issue #113／PR #115，@Rumi-3653）：C# executor `MCP/Core/CadBlockPlacementExecutor.cs`；dispatcher case `MCP/Core/CommandExecutor.cs`；MCP tool 定義 `MCP-Server/src/tools/cad-block-placement-tools.ts`（掛載於 `full`／`mep` profile，見 `MCP-Server/src/tools/index.ts` 的 `PROFILE_MODULES`）。**這些路徑已建立、R22–R26 建置皆通過，但尚未對真實 Revit 執行過**——見文件開頭狀態橫幅列出的四項未驗證項目。目前尚無 Skill 引用本 domain，frontmatter 的 `referenced_by` 維持 `[]`。

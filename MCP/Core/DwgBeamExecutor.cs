@@ -495,26 +495,25 @@ namespace RevitMCP.Core
             XYZ en = new XYZ(b.EndPoint.X, b.EndPoint.Y, bLv.Elevation);
             var inst = doc.Create.NewFamilyInstance(Line.CreateBound(st, en), sym, bLv, StructuralType.Beam);
             if (inst == null) return;
-            try
-            {
-                var yJust = inst.get_Parameter(BuiltInParameter.Y_JUSTIFICATION);
-                if (yJust != null && !yJust.IsReadOnly) yJust.Set(1); // Center
 
-                var zOff = inst.get_Parameter(BuiltInParameter.Z_OFFSET_VALUE);
-                if (zOff != null && !zOff.IsReadOnly) zOff.Set(0.0);
-
-                var zJust = inst.get_Parameter(BuiltInParameter.Z_JUSTIFICATION);
-                if (zJust != null && !zJust.IsReadOnly) zJust.Set(0); // Top
-            }
-            catch { }
-
-            // #90 依批次角色設定結構用途：大樑/地樑→Girder、次樑→Joist。
+            // #117 依批次角色設定結構用途：大樑/地樑→Girder、次樑/小樑→Joist。
             // 對新建樑而言 INSTANCE_STRUCTURAL_USAGE_PARAM 為唯讀，須直接對 FamilyInstance.StructuralUsage 賦值。
+            // 不再吞例外：賦值失敗要讓呼叫端的 catch (Exception ex) { fail++; errors.Add(...) } 看得到。
             var usage = MapBeamRoleToUsage(beamRole);
             if (usage.HasValue)
             {
-                try { inst.StructuralUsage = usage.Value; } catch { }
+                inst.StructuralUsage = usage.Value;
             }
+
+            var yJust = inst.get_Parameter(BuiltInParameter.Y_JUSTIFICATION);
+            if (yJust != null && !yJust.IsReadOnly) yJust.Set(1); // Center
+
+            var zOff = inst.get_Parameter(BuiltInParameter.Z_OFFSET_VALUE);
+            if (zOff != null && !zOff.IsReadOnly) zOff.Set(0.0);
+
+            var zJust = inst.get_Parameter(BuiltInParameter.Z_JUSTIFICATION);
+            if (zJust != null && !zJust.IsReadOnly) zJust.Set(0); // Top
+
             ok++;
         }
 
@@ -522,7 +521,8 @@ namespace RevitMCP.Core
         static StructuralInstanceUsage? MapBeamRoleToUsage(string beamRole)
         {
             if (string.IsNullOrWhiteSpace(beamRole)) return null;
-            if (beamRole.Contains("次樑") || beamRole.Contains("次梁")) return StructuralInstanceUsage.Joist;
+            if (beamRole.Contains("次樑") || beamRole.Contains("次梁") ||
+                beamRole.Contains("小樑") || beamRole.Contains("小梁")) return StructuralInstanceUsage.Joist;
             if (beamRole.Contains("大樑") || beamRole.Contains("大梁") ||
                 beamRole.Contains("地樑") || beamRole.Contains("地梁")) return StructuralInstanceUsage.Girder;
             return null;

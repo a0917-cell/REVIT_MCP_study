@@ -148,3 +148,11 @@ docs/fork-audit/
 # .agents/skills/ 是混合命名空間：貢獻者在 commit 604cafe 提交的 8 個鏡像是 repo 內容
 # （已被追蹤，不受此規則影響），其餘由本機工具產生者一律不進版控。
 .codex/
+# 規則本體：上方說明已存在多時，這條 pattern 一直沒補上，導致鏡像裸露在 working tree。
+# .gitignore 不影響已追蹤檔案，故 commit 604cafe 的既有 8 個鏡像仍會保持追蹤，不受影響。
+.agents/skills/
+
+# 本機手冊修訂提案草稿（非 repo 內容）
+# docs/_playbook-sync/ 是本機產生的手冊修訂提案，其稽核報告自行判定 deident_pass: false，
+# 代表去識別化未過關，在通過去識別化稽核前不得進版控。
+docs/_playbook-sync/
