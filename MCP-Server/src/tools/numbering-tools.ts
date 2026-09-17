@@ -181,8 +181,8 @@ export const numberingTools: Tool[] = [
                 },
                 dryRun: {
                     type: "boolean",
-                    description: "true = 只回傳每個元件將取得的編號與放置點，不建立 TextNote。",
-                    default: false,
+                    description: "true（預設）＝只回傳每個元件將取得的編號與放置點，不建立 TextNote。確認順序後再以 false 執行。",
+                    default: true,
                 },
             },
             required: [],

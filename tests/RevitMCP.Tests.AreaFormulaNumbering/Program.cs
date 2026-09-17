@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Newtonsoft.Json.Linq;
 using RevitMCP.Tests;
 
 namespace RevitMCP.Tests.AreaFormulaNumbering
@@ -62,6 +63,8 @@ namespace RevitMCP.Tests.AreaFormulaNumbering
             LetterLabelChecks();
             ParkingCategoryChecks();
             ExclusionChecks();
+            ArrayParameterChecks();
+            TextNoteTextChecks();
             OrderAndRotateChecks();
 
             Console.WriteLine();
@@ -376,6 +379,75 @@ namespace RevitMCP.Tests.AreaFormulaNumbering
             Check("id 規則優先於值規則", true,
                 CallIsExcluded("893126", "27", new[] { "893126" }, new[] { "變更" }, out reason));
             Check("  優先時理由是 id 那條", true, reason != null && reason.Contains("excludeElementIds"));
+            Console.WriteLine();
+        }
+
+        // ---------- ReadStringArray / ReadIdArray：陣列參數的嚴格檢查 ----------
+
+        private static string InvokeExpectingThrow(string name, params object[] args)
+        {
+            try
+            {
+                M(name).Invoke(null, args);
+                return null;
+            }
+            catch (TargetInvocationException ex)
+            {
+                return ex.InnerException?.Message ?? ex.Message;
+            }
+        }
+
+        private static void ArrayParameterChecks()
+        {
+            Console.WriteLine("ReadStringArray / ReadIdArray (陣列參數不得靜默退回預設)");
+
+            // 2026-09-17 審查 Critical：token 存在但不是 JArray（client 送成字串、或 Node server
+            // 跑的是舊 schema）時，原本靜默退回 fallback。excludeValues 是防覆寫既有編號的唯一
+            // 防線，退回空清單等於把防線拆掉還回綠燈。
+            var arr = new JObject { ["excludeValues"] = new JArray("變更", "", "保留") };
+            var got = (List<string>)Invoke("ReadStringArray", arr, "excludeValues", new string[0]);
+            Check("JArray 正常讀取並剔除空白", "變更|保留", string.Join("|", got));
+
+            var missing = new JObject();
+            got = (List<string>)Invoke("ReadStringArray", missing, "excludeValues", new[] { "預設" });
+            Check("缺 key 走 fallback", "預設", string.Join("|", got));
+
+            var asString = new JObject { ["excludeValues"] = "變更" };
+            string msg = InvokeExpectingThrow("ReadStringArray", asString, "excludeValues", new string[0]);
+            Check("字串而非陣列 → 丟例外", true, msg != null);
+            Check("  例外訊息點名參數與型別", true, msg != null && msg.Contains("excludeValues") && msg.Contains("陣列"));
+
+            var ids = new JObject { ["sourceIds"] = new JArray(2063997, 2067719) };
+            var idList = (IList)Invoke("ReadIdArray", ids, "sourceIds");
+            Check("ReadIdArray 讀出兩個 id", 2, idList.Count);
+            Check("  第一個 id 值正確", "2063997", Convert.ToString(idList[0], CultureInfo.InvariantCulture));
+
+            Check("ReadIdArray 缺 key 回 null", true, Invoke("ReadIdArray", new JObject(), "sourceIds") == null);
+            Check("ReadIdArray 空陣列回 null", true,
+                Invoke("ReadIdArray", new JObject { ["sourceIds"] = new JArray() }, "sourceIds") == null);
+
+            msg = InvokeExpectingThrow("ReadIdArray", new JObject { ["sourceIds"] = "2063997" }, "sourceIds");
+            Check("ReadIdArray 字串而非陣列 → 丟例外", true, msg != null && msg.Contains("sourceIds"));
+
+            msg = InvokeExpectingThrow("ReadIdArray", new JObject { ["sourceIds"] = new JArray("abc") }, "sourceIds");
+            Check("ReadIdArray 非整數元素 → 丟例外", true, msg != null);
+            Console.WriteLine();
+        }
+
+        // ---------- BuildTextNoteText：TextNote 內部換行 ----------
+
+        private static void TextNoteTextChecks()
+        {
+            Console.WriteLine("BuildTextNoteText (TextNote 換行用 \\r)");
+
+            // Revit TextNote.Text 的行分隔是單一 \r；AppendLine 給的 \r\n 在部分版本會多出空行。
+            string text = (string)Invoke("BuildTextNoteText", "1F", new List<string> { "A = 1", "B = 2" }, "合計 = 3 ㎡");
+            Check("標題+兩行+合計，共四行", 4, text.Split('\r').Length);
+            Check("不含 \\n", false, text.Contains("\n"));
+            Check("最後一行是合計", "合計 = 3 ㎡", text.Split('\r').Last());
+
+            text = (string)Invoke("BuildTextNoteText", null, new List<string> { "A = 1" }, "合計 = 1 ㎡");
+            Check("無標題時不留空首行", "A = 1", text.Split('\r').First());
             Console.WriteLine();
         }
 

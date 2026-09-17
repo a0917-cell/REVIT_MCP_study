@@ -83,8 +83,8 @@ export const areaFormulaTools: Tool[] = [
                 },
                 dryRun: {
                     type: "boolean",
-                    description: "true = 只回傳算式與對帳結果，不在圖面建立 TextNote。",
-                    default: false,
+                    description: "true（預設）＝只回傳算式與對帳結果，不在圖面建立 TextNote。確認對帳全過後再以 false 執行（需同時給 x/y）。",
+                    default: true,
                 },
             },
             required: [],

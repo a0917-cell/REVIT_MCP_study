@@ -259,6 +259,21 @@ namespace RevitMCP.Core
         }
 
         /// <summary>
+        /// 組 TextNote 文字：可選標題、逐行算式、合計。行分隔用單一 <c>\r</c> ——
+        /// Revit TextNote.Text 自己就是用 <c>\r</c>，AppendLine 給的 <c>\r\n</c> 在部分版本會多出空行。
+        /// 純函式。
+        /// </summary>
+        internal static string BuildTextNoteText(string label, List<string> lines, string totalLine)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(label))
+                parts.Add(label);
+            parts.AddRange(lines);
+            parts.Add(totalLine);
+            return string.Join("\r", parts);
+        }
+
+        /// <summary>
         /// 依形狀與四捨五入後的邊長組出算式文字與其乘積。
         /// 回傳的 areaM2 是「印在圖上的那個算式算出來的值」，不是幾何真值 —— 兩者的差就是要對帳的東西。
         /// 純函式。
@@ -354,7 +369,8 @@ namespace RevitMCP.Core
             double areaToleranceM2 = parameters["areaToleranceM2"]?.Value<double?>() ?? 0.05;
             string areaUnitLabel = parameters["areaUnitLabel"]?.Value<string>() ?? "㎡";
             string textTypeName = parameters["textTypeName"]?.Value<string>();
-            bool dryRun = parameters["dryRun"]?.Value<bool?>() ?? false;
+            // 預設 dry-run：這個工具會把算式寫進送審圖，第一次呼叫不該直接落筆。
+            bool dryRun = parameters["dryRun"]?.Value<bool?>() ?? true;
 
             if (decimals < 0 || decimals > 6)
                 throw new Exception("decimals 必須介於 0 到 6。");
@@ -362,15 +378,15 @@ namespace RevitMCP.Core
                 throw new Exception("areaToleranceM2 必須大於 0：四捨五入本身就會產生差異，容差為 0 會讓每一項都被判為不符。");
 
             // 1. 收集來源空間元素
-            var sourceIdsToken = parameters["sourceIds"] as JArray;
+            // sourceIds 送成非陣列會丟例外，不會靜默退回「整個視圖」收集。
+            List<IdType> sourceIds = ReadIdArray(parameters, "sourceIds");
             var spatials = new List<SpatialElement>();
             string sourceScope;
 
-            if (sourceIdsToken != null && sourceIdsToken.Count > 0)
+            if (sourceIds != null)
             {
-                foreach (var token in sourceIdsToken)
+                foreach (IdType rawId in sourceIds)
                 {
-                    IdType rawId = token.Value<IdType>();
                     Element element = doc.GetElement(new ElementId(rawId));
                     SpatialElement spatial = element as SpatialElement;
                     if (spatial == null)
@@ -486,13 +502,8 @@ namespace RevitMCP.Core
             double totalRounded = RoundHalfUp(total, decimals);
 
             // 3. 組出完整文字
-            var textBuilder = new StringBuilder();
-            if (!string.IsNullOrWhiteSpace(label))
-                textBuilder.AppendLine(label);
-            foreach (string line in formulaLines)
-                textBuilder.AppendLine(line);
-            textBuilder.Append("合計 = " + totalRounded.ToString(fmt, CultureInfo.InvariantCulture) + " " + areaUnitLabel);
-            string formulaText = textBuilder.ToString();
+            string formulaText = BuildTextNoteText(label, formulaLines,
+                "合計 = " + totalRounded.ToString(fmt, CultureInfo.InvariantCulture) + " " + areaUnitLabel);
 
             // 4. 寫入圖面
             IdType? textNoteId = null;
@@ -524,7 +535,9 @@ namespace RevitMCP.Core
                         };
                         TextNote note = TextNote.Create(doc, view.Id, new XYZ(x.Value / FeetToMm, y.Value / FeetToMm, 0), formulaText, options);
                         textNoteId = note.Id.GetIdValue();
-                        trans.Commit();
+                        // SilentFailuresPreprocessor 對 Error 級失敗回 Continue，Commit 會回 RolledBack 而不丟例外。
+                        if (trans.Commit() != TransactionStatus.Committed)
+                            throw new Exception("交易未提交（Revit 回報錯誤，見 RevitMCP log）。");
                         written = true;
                     }
                     catch (Exception ex)

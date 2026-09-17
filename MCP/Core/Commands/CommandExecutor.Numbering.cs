@@ -155,12 +155,47 @@ namespace RevitMCP.Core
             return false;
         }
 
-        private static List<string> ReadStringArray(JObject parameters, string key, string[] fallback)
+        /// <summary>
+        /// 讀字串陣列參數。key 不存在或空陣列 → fallback；**存在但不是陣列 → 丟例外**。
+        /// 靜默退回 fallback 曾是 2026-09-17 審查的 Critical：excludeValues 是防覆寫既有編號的
+        /// 唯一防線，client 把它送成字串（或 Node server 跑的是沒有這個欄位的舊 schema）時，
+        /// 退回空清單等於把防線拆掉，dry-run 看起來還是綠的。
+        /// </summary>
+        internal static List<string> ReadStringArray(JObject parameters, string key, string[] fallback)
         {
-            var token = parameters[key] as JArray;
-            if (token == null || token.Count == 0)
+            JToken raw = parameters[key];
+            if (raw == null || raw.Type == JTokenType.Null)
+                return fallback.ToList();
+            var token = raw as JArray;
+            if (token == null)
+                throw new Exception($"參數 {key} 必須是陣列，收到 {raw.Type}。若 MCP server 的 schema 沒有這個欄位，請重啟 session 讓新 schema 生效。");
+            if (token.Count == 0)
                 return fallback.ToList();
             return token.Select(t => t.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        }
+
+        /// <summary>
+        /// 讀 ElementId 陣列參數。key 不存在或空陣列 → null（呼叫端走「自動收集」路徑）；
+        /// 存在但不是陣列、或元素不是整數 → 丟例外，不得靜默退回自動收集。
+        /// </summary>
+        internal static List<IdType> ReadIdArray(JObject parameters, string key)
+        {
+            JToken raw = parameters[key];
+            if (raw == null || raw.Type == JTokenType.Null)
+                return null;
+            var token = raw as JArray;
+            if (token == null)
+                throw new Exception($"參數 {key} 必須是陣列，收到 {raw.Type}。若 MCP server 的 schema 沒有這個欄位，請重啟 session 讓新 schema 生效。");
+            if (token.Count == 0)
+                return null;
+            var ids = new List<IdType>(token.Count);
+            foreach (var t in token)
+            {
+                if (t.Type != JTokenType.Integer)
+                    throw new Exception($"參數 {key} 的元素必須是整數 ElementId，收到 {t.Type}：{t}");
+                ids.Add(t.Value<IdType>());
+            }
+            return ids;
         }
 
         #endregion
@@ -188,9 +223,15 @@ namespace RevitMCP.Core
 
             string levelName = parameters["levelName"]?.Value<string>();
             string only = (parameters["only"]?.Value<string>() ?? "all").Trim().ToLowerInvariant();
+            // 未指定參數名時走 BuiltInParameter，不用 LookupParameter("備註")：那是 zh-TW 的顯示名，
+            // 非中文 Revit 回 null，且同名共用參數會被 LookupParameter 先撿到。
             string parameterName = parameters["parameterName"]?.Value<string>();
-            if (string.IsNullOrWhiteSpace(parameterName))
+            bool useBuiltInComments = string.IsNullOrWhiteSpace(parameterName);
+            if (useBuiltInComments)
                 parameterName = "備註";
+            Func<Element, Parameter> resolveParam = e => useBuiltInComments
+                ? e.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+                : e.LookupParameter(parameterName);
             long carStart = parameters["carStart"]?.Value<long?>() ?? 1;
             long motorcycleStart = parameters["motorcycleStart"]?.Value<long?>() ?? 1;
             long busStart = parameters["busStart"]?.Value<long?>() ?? 1;
@@ -270,7 +311,7 @@ namespace RevitMCP.Core
                     continue;
                 }
 
-                string currentValue = element.LookupParameter(parameterName)?.AsString();
+                string currentValue = resolveParam(element)?.AsString();
                 string exclusionReason;
                 if (IsExcluded(idString, currentValue, excludeIds, excludeValues, out exclusionReason))
                 {
@@ -305,7 +346,9 @@ namespace RevitMCP.Core
                 { "bus", busStart }
             };
 
-            var proposals = new List<(Element Element, string Category, string OldValue, string NewValue, double X, double Y, int RowIndex, bool Reserved)>();
+            // ParamIssue 在 dry-run 階段就算出來：參數不存在／唯讀／非文字型別。以前只在真寫入時檢查，
+            // dry-run 讀到 null 參數會顯示 OldValue=null 看起來全綠，失敗要到 dryRun=false 那次才爆。
+            var proposals = new List<(Element Element, string Category, string OldValue, string NewValue, double X, double Y, int RowIndex, bool Reserved, string ParamIssue)>();
             var startPoints = new List<object>();
             string startIdString = startElementId.HasValue
                 ? startElementId.Value.ToString(CultureInfo.InvariantCulture)
@@ -340,10 +383,17 @@ namespace RevitMCP.Core
                 {
                     RoomOrderPoint point = finalOrder[i];
                     Element element = elementById[point.Id];
-                    Parameter param = element.LookupParameter(parameterName);
+                    Parameter param = resolveParam(element);
                     string oldValue = param?.AsString();
                     string newValue = prefix + numbers[i].ToString(CultureInfo.InvariantCulture);
-                    proposals.Add((element, category, oldValue, newValue, point.X, point.Y, point.RowIndex, reservedIds.Contains(point.Id)));
+                    string paramIssue = null;
+                    if (param == null)
+                        paramIssue = $"沒有名為 '{parameterName}' 的參數。";
+                    else if (param.IsReadOnly)
+                        paramIssue = $"參數 '{parameterName}' 唯讀，無法寫入。";
+                    else if (param.StorageType != StorageType.String)
+                        paramIssue = $"參數 '{parameterName}' 不是文字型別（實際：{param.StorageType}）。";
+                    proposals.Add((element, category, oldValue, newValue, point.X, point.Y, point.RowIndex, reservedIds.Contains(point.Id), paramIssue));
                 }
 
                 startPoints.Add(new
@@ -377,13 +427,9 @@ namespace RevitMCP.Core
                             if (proposal.Reserved)
                                 continue;
 
-                            Parameter param = proposal.Element.LookupParameter(parameterName);
-                            if (param == null)
-                                throw new Exception($"停車格 {proposal.Element.Id.GetIdValue()} 沒有名為 '{parameterName}' 的參數。");
-                            if (param.IsReadOnly)
-                                throw new Exception($"停車格 {proposal.Element.Id.GetIdValue()} 的參數 '{parameterName}' 唯讀，無法寫入。");
-                            if (param.StorageType != StorageType.String)
-                                throw new Exception($"停車格 {proposal.Element.Id.GetIdValue()} 的參數 '{parameterName}' 不是文字型別（實際：{param.StorageType}）。");
+                            if (proposal.ParamIssue != null)
+                                throw new Exception($"停車格 {proposal.Element.Id.GetIdValue()}：{proposal.ParamIssue}");
+                            Parameter param = resolveParam(proposal.Element);
 
                             // Parameter.Set 被拒絕時回傳 false 而不丟例外；不檢查就會 commit 出一批
                             // 靜默沒改到的車位，看起來全綠但實際比對了 0 個項目。
@@ -391,7 +437,10 @@ namespace RevitMCP.Core
                             if (!applied)
                                 throw new Exception($"停車格 {proposal.Element.Id.GetIdValue()} 寫入 '{proposal.NewValue}' 被 Revit 拒絕（可能受群組或公式約束）。");
                         }
-                        trans.Commit();
+                        // SilentFailuresPreprocessor 對 Error 級失敗回 Continue，Commit 會回 RolledBack 而不丟例外；
+                        // 不檢查就會回報「已寫入 N 個」但模型裡一個都沒改。
+                        if (trans.Commit() != TransactionStatus.Committed)
+                            throw new Exception("交易未提交（Revit 回報錯誤，見 RevitMCP log）。");
                     }
                     catch (Exception ex)
                     {
@@ -411,7 +460,8 @@ namespace RevitMCP.Core
                 CenterXMm = Math.Round(p.X, 2),
                 CenterYMm = Math.Round(p.Y, 2),
                 RowIndex = p.RowIndex,
-                Reserved = p.Reserved
+                Reserved = p.Reserved,
+                ParamIssue = p.ParamIssue
             }).ToList();
 
             var categoryCounts = proposals
@@ -423,8 +473,11 @@ namespace RevitMCP.Core
                 ? ""
                 : $"，{excluded.Count} 個被排除（excludeMode={excludeMode}{excludeSuffix}）";
 
+            int paramIssueCount = proposals.Count(p => !p.Reserved && p.ParamIssue != null);
+            string paramIssueNote = paramIssueCount == 0 ? "" : $"；**{paramIssueCount} 個停車格的參數不可寫（見 Spaces[].ParamIssue），dryRun=false 會整批回滾**";
+
             string message = dryRun
-                ? $"Dry-run：{writableCount} 個停車格預計寫入（{string.Join("、", categoryCounts.Select(kv => kv.Key + " " + kv.Value))}），{skipped.Count} 個略過{excludeNote}。尚未寫入，確認排序與起點後再以 dryRun=false 執行。"
+                ? $"Dry-run：{writableCount} 個停車格預計寫入（{string.Join("、", categoryCounts.Select(kv => kv.Key + " " + kv.Value))}），{skipped.Count} 個略過{excludeNote}{paramIssueNote}。尚未寫入，確認排序與起點後再以 dryRun=false 執行。"
                 : $"已寫入 {writableCount} 個停車格的 '{parameterName}'（{string.Join("、", categoryCounts.Select(kv => kv.Key + " " + kv.Value))}），{skipped.Count} 個略過{excludeNote}。";
 
             return new
@@ -434,6 +487,7 @@ namespace RevitMCP.Core
                 ParameterName = parameterName,
                 Count = proposals.Count,
                 WritableCount = writableCount,
+                ParamIssueCount = paramIssueCount,
                 ExcludeMode = excludeMode,
                 CategoryCounts = categoryCounts,
                 StartPoints = startPoints,
@@ -467,7 +521,7 @@ namespace RevitMCP.Core
             if (view == null)
                 throw new Exception(viewIdParam.HasValue ? $"找不到視圖 ID: {viewIdParam.Value}" : "取不到作用中的視圖。");
 
-            var elementIdsToken = parameters["elementIds"] as JArray;
+            List<IdType> explicitIds = ReadIdArray(parameters, "elementIds");
             string categoryName = parameters["category"]?.Value<string>();
             string order = parameters["order"]?.Value<string>();
             string format = (parameters["format"]?.Value<string>() ?? "number").Trim().ToLowerInvariant();
@@ -479,14 +533,15 @@ namespace RevitMCP.Core
             double offsetYMm = parameters["offsetYMm"]?.Value<double?>() ?? 0;
             double yToleranceMm = parameters["yToleranceMm"]?.Value<double?>() ?? 1500;
             string textTypeName = parameters["textTypeName"]?.Value<string>();
-            bool dryRun = parameters["dryRun"]?.Value<bool?>() ?? false;
+            // 預設 dry-run，與 renumber_parking_spaces 一致；domain/sequence-numbering.md 要求先看排序再放。
+            bool dryRun = parameters["dryRun"]?.Value<bool?>() ?? true;
 
             if (format != "number" && format != "letter")
                 throw new Exception($"format 只接受 number 或 letter，收到 '{format}'。");
             if (start < 1 && format == "letter")
                 throw new Exception("format='letter' 時 start 必須 ≥ 1（1 代表 a）。");
 
-            bool hasExplicitIds = elementIdsToken != null && elementIdsToken.Count > 0;
+            bool hasExplicitIds = explicitIds != null;
             if (string.IsNullOrWhiteSpace(order))
                 order = hasExplicitIds ? "given" : "yx";
             if (order != "given" && order != "yx")
@@ -496,9 +551,8 @@ namespace RevitMCP.Core
             var elements = new List<Element>();
             if (hasExplicitIds)
             {
-                foreach (var token in elementIdsToken)
+                foreach (IdType rawId in explicitIds)
                 {
-                    IdType rawId = token.Value<IdType>();
                     Element element = doc.GetElement(new ElementId(rawId));
                     if (element == null)
                         throw new Exception($"找不到 ElementId {rawId}。");
@@ -615,7 +669,8 @@ namespace RevitMCP.Core
                             TextNote note = TextNote.Create(doc, view.Id, new XYZ(px, py, 0), labels[i], options);
                             createdIds.Add(note.Id.GetIdValue());
                         }
-                        trans.Commit();
+                        if (trans.Commit() != TransactionStatus.Committed)
+                            throw new Exception("交易未提交（Revit 回報錯誤，見 RevitMCP log）。");
                         written = true;
                     }
                     catch (Exception ex)
