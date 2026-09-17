@@ -33,8 +33,8 @@ These counts must be derived from source, not copied by memory.
 
 | Item | Current Count | Source of Truth |
 |---|---:|---|
-| Runtime MCP tools | 180 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
-| Domain SOP files | 79 | `domain/*.md` except `domain/README.md`, plus `domain/references/*.md` |
+| Runtime MCP tools | 183 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
+| Domain SOP files | 81 | `domain/*.md` except `domain/README.md`, plus `domain/references/*.md` |
 | Claude skills | 54 | `.claude/skills/*/SKILL.md` |
 
 When these numbers change, update `CLAUDE.md`, `README.md`, `README.zh-TW.md`, `docs/DOCUMENT_AUDIENCE_INVENTORY.md`, and any public site copy that makes grand-total claims. Then run `scripts/verify-qaqc.ps1 -SkipBuild -SkipDeploy`.
@@ -301,7 +301,9 @@ Read the matching file before applying a workflow or calculation.
 | MEP extension, pyRevit MEP guide | `domain/mep-extension-guide.md` |
 | mechanical settings, MEP settings, segments and sizes, duct size, pipe segment, 管徑目錄, 風管尺寸表, fitting angle, pipe slope, 尺寸增減, curate size, CNS 對帳 | `domain/mep-mechanical-settings.md` |
 | space demand matrix, 空間需求矩陣, MEP tag, 容量包絡, 機房面積反算, 前期容量, 基本設計容量, programming, SMP, concept design, Space 明細表, 逐空間通風檢核, FUM | `domain/mep-space-demand-matrix.md` |
-| parking numbering, auto parking numbering | `domain/parking-auto-numbering.md` |
+| parking numbering, auto parking numbering, 停車編號, 車位編號, renumber_parking_spaces | `domain/parking-auto-numbering.md` |
+| 送照面積計算式, 樓板面積算式, 面積計算式, floor area formula, permit floor area, create_floor_area_formula | `domain/permit-floor-area-formula.md` |
+| 編號插入, 順序編號, 圖面編號, sequence numbering, create_sequence_numbers, 跳 4 編號 | `domain/sequence-numbering.md` |
 | parking clearance, vehicle clearance, 210cm | `domain/parking-clearance-check.md` |
 | parking count, parking space review | `domain/parking-space-review.md` |
 | PDF export, DCC, PDFExportOptions | `domain/pdf-export-comparison.md` |

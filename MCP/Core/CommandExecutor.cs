@@ -181,6 +181,18 @@ namespace RevitMCP.Core
                         result = RenumberRoomsByLevel(parameters);
                         break;
 
+                    case "renumber_parking_spaces":
+                        result = RenumberParkingSpaces(parameters);
+                        break;
+
+                    case "create_sequence_numbers":
+                        result = CreateSequenceNumbers(parameters);
+                        break;
+
+                    case "create_floor_area_formula":
+                        result = CreateFloorAreaFormula(parameters);
+                        break;
+
                     case "get_room_surface_areas":
                         result = GetRoomSurfaceAreas(parameters);
                         break;

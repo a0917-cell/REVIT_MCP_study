@@ -52,6 +52,23 @@ including the process-kill path — into a test run. `ExclusiveLock` is disabled
 handshakes are independent; with the lock on, the second would fail with `409` for a reason
 unrelated to what is being tested.
 
+## RevitMCP.Tests.AreaFormulaNumbering
+
+Covers the pure geometry and numbering logic behind `create_floor_area_formula`,
+`renumber_parking_spaces` and `create_sequence_numbers`: polygon simplification (duplicate
+and collinear vertex removal), shoelace area, rectangle/triangle classification, formula
+term formatting and rounding, the skip-4 number sequence, letter labels, parking category
+keyword matching, and the shared top-down/left-to-right ordering plus start-element rotation.
+
+These are internal statics taking plain values, reached by reflection. Everything needing a
+live `Document` -- boundary extraction from Revit, TextNote creation, parameter writes -- is
+**not** covered here and the harness says so rather than implying it is.
+
+53 checks. Six mutation probes were run against it on 2026-09-07 (disable collinear removal,
+drop the right-angle triangle preference, switch to banker's rounding, make skip-4 test only
+the units digit, accept a missing start element, chain row grouping off the previous point);
+all six turned the suite red. A suite that has never been made to fail is not evidence.
+
 ## Adding to these
 
 The add-in is referenced with `Private=false`, so it is never copied next to the harness and

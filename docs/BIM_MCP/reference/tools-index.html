@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tools 索引（180 個）· BIM_MCP</title>
-<meta property="og:title" content="RevitMCP Tools 索引：180 個執行層工具">
-<meta property="og:description" content="180 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
+<title>Tools 索引（183 個）· BIM_MCP</title>
+<meta property="og:title" content="RevitMCP Tools 索引：183 個執行層工具">
+<meta property="og:description" content="183 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;600;700;800&display=swap">
@@ -89,9 +89,9 @@
 </nav>
 
 <header class="bim-hero">
-  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">180 個</span></div>
+  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">183 個</span></div>
   <h1 class="bim-hero-title">Tools · <span class="accent">執行層</span><br>模型上真正被動到的那一下</h1>
-  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 180 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
+  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 183 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
 </header>
 
 <section class="bim-section">
@@ -99,7 +99,7 @@
   <p>每張卡右上角的標記來自工具自己宣告的 <code>annotations</code>，不是這一頁另外標的——閘門 <code>9-1</code> 會驗證它們與程式碼一致。</p>
   <ul>
     <li><strong>唯讀</strong>（84 個）——只讀不寫。跑錯了不會留下痕跡，可以放心探索。</li>
-    <li><strong>會寫入</strong>（93 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
+    <li><strong>會寫入</strong>（96 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
     <li><strong>破壞性</strong>（3 個）——刪除或不可逆地取代既有內容：<code>curate_mep_sizes · dedup_detail_elements_in_view · delete_element</code>。這份名單是白名單，程式碼裡多一個就會被閘門擋下。</li>
   </ul>
   <p style="color:var(--text-muted);font-size:13px;">「唯讀」是工具作者的宣告，不是執行時的沙箱。它告訴你這支工具<em>設計上</em>不寫入，不是保證它<em>不可能</em>寫入。</p>
@@ -114,7 +114,7 @@
     <tbody>
         <tr><td><strong>A</strong></td><td>基礎與查詢</td><td class="num">25</td><td>讀模型、找元素、問參數。多數工作的第一步。</td></tr>
         <tr><td><strong>B</strong></td><td>建模與構件</td><td class="num">47</td><td>產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步。</td></tr>
-        <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">18</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
+        <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">21</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
         <tr><td><strong>D</strong></td><td>MEP 與碰撞</td><td class="num">17</td><td>風管系統、空間代表點、套管開孔、CSA 干涉。</td></tr>
         <tr><td><strong>E</strong></td><td>法規檢核</td><td class="num">13</td><td>排煙、偵煙、樓梯——有法源、有判準的檢查。</td></tr>
         <tr><td><strong>F</strong></td><td>視圖與圖紙</td><td class="num">26</td><td>建視圖、裁剪、圖紙配置、視埠定位、跨專案複製。</td></tr>
@@ -122,11 +122,11 @@
         <tr><td><strong>H</strong></td><td>視覺化</td><td class="num">9</td><td>上色、覆寫、隱藏顯示——把分析結果畫回模型上。</td></tr>
     </tbody>
   </table>
-  <p style="color:var(--text-muted);font-size:13px;">分類是 40 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 180。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
+  <p style="color:var(--text-muted);font-size:13px;">分類是 42 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 183。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
 </section>
 
 <section class="bim-section">
-  <h2 class="bim-section-title">180 個工具 · 依用途分組</h2>
+  <h2 class="bim-section-title">183 個工具 · 依用途分組</h2>
 
     <div class="cat-header">A · 基礎與查詢（25 個）</div>
     <p class="cat-blurb">讀模型、找元素、問參數。多數工作的第一步。</p>
@@ -855,7 +855,7 @@
         <div class="tool-desc">取消牆體與柱子等元素的幾何接合關係。常用於元素上色前的前置作業。</div>
       </div>
     </div>
-    <div class="cat-header">C · 房間與空間（18 個）</div>
+    <div class="cat-header">C · 房間與空間（21 個）</div>
     <p class="cat-blurb">房間邊界、編號、面積、走廊、施工架周長。</p>
     <div class="tool-card" id="analyze_corridor_width" data-tool="analyze_corridor_width">
       <div>
@@ -947,6 +947,26 @@
         <div class="tool-desc">在 Revit 中自動建立粉刷／油漆材料填滿圖例。同時偵測兩種資料來源：(1) 全專案房間的粉刷層（CompoundStructure Function=Finish）、(2) 被「油漆工具」塗在 Wall/Floor/Ceiling 的材料（依面法向量分類牆/地/天）。為每種材料建立 FilledRegionType 並在 Legend 視圖中繪製三張表（地坪/牆面/天花）。每張表三欄：編號 | 圖例 | 說明；粉刷類型使用 TypeMark/TypeName，油漆材料使用 Material.Mark/Description（空值顯示『(未填)』）。粉刷列在上、油漆列在下，中間以分隔列隔開。前提：專案必須已有任一 Legend 視圖（即使空白）作為複製模板，因 Revit API 不允許直接建立 Legend。版面固定（1:100 比例，欄寬 130/120/650 cm、列高 50 cm）。</div>
       </div>
     </div>
+    <div class="tool-card" id="create_floor_area_formula" data-tool="create_floor_area_formula">
+      <div>
+        <div class="tool-name">create_floor_area_formula</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">area-formula-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">產出建照送審用的樓板面積計算式文字（矩形 長×寬、三角形 底×高÷2），並可寫成圖面上的 TextNote。來源是使用者已切分好的封閉區域，本工具不自行分解多邊形；每一項都會拿四捨五入後的邊長乘積與實際幾何面積對帳。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="create_sequence_numbers" data-tool="create_sequence_numbers">
+      <div>
+        <div class="tool-name">create_sequence_numbers</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">numbering-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">在視圖上依順序放置編號 TextNote，對象可以是任意元件。支援數字（1,2,3）與字母（a,b,c）兩種序列，搭配 prefix 可組出 A1、A2；可選擇跳過含 4 的號碼。</div>
+      </div>
+    </div>
     <div class="tool-card" id="get_room_daylight_info" data-tool="get_room_daylight_info">
       <div>
         <div class="tool-name">get_room_daylight_info</div>
@@ -1015,6 +1035,16 @@
       </div>
       <div>
         <div class="tool-desc">Batch-remap room finish code parameters in one Revit transaction. Designed for painting/finish schedules: split values by &#x27;+&#x27;, replace exact code tokens such as F11 -&gt; F10 without touching F1 inside F11, and let room schedules update from the changed room parameters. Defaults to dryRun=true.</div>
+      </div>
+    </div>
+    <div class="tool-card" id="renumber_parking_spaces" data-tool="renumber_parking_spaces">
+      <div>
+        <div class="tool-name">renumber_parking_spaces</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">numbering-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">依幾何位置批次重編停車格編號並寫入參數（預設「備註」）。汽車／機車／大客車各自獨立起號，先依 Y 由上到下分排、同排依 X 由左到右排序。預設 dryRun=true。</div>
       </div>
     </div>
     <div class="tool-card" id="renumber_rooms_by_level" data-tool="renumber_rooms_by_level">
@@ -1958,7 +1988,7 @@
     <a href="../index.html" class="bim-footer-btn">回 BIM_MCP 首頁</a>
   </div>
   <p>BIM_MCP · reference / tools-index</p>
-  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">180 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
+  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">183 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
 </footer>
 
 <script src="../shared.js"></script>
