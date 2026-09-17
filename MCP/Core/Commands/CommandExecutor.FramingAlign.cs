@@ -225,10 +225,11 @@ namespace RevitMCP.Core
             }
 
             List<BuiltInCategory> catsToCollect = ResolveTargetCategories(targetCategories);
-            List<FramingAlignTarget> targetItems = CollectAlignTargets(doc, targetView, catsToCollect);
+            List<FramingAlignTarget> targetItems = CollectAlignTargets(doc, catsToCollect, framingElements, maxFaceFeet);
 
             int alignedEndCount = 0;
             int manualCount = 0;
+            int noCandidateCount = 0;
             var details = new List<object>();
 
             using (Transaction trans = TransactionHelper.Begin(doc, "Align Structural Framing Endpoints"))
@@ -274,9 +275,9 @@ namespace RevitMCP.Core
                     }
 
                     ApplyEndAlignment(framing, p0, -v, 0, targetItems, maxFaceFeet, disallowJoinAtEnds,
-                        details, ref alignedEndCount, ref manualCount);
+                        details, ref alignedEndCount, ref manualCount, ref noCandidateCount);
                     ApplyEndAlignment(framing, p1, v, 1, targetItems, maxFaceFeet, disallowJoinAtEnds,
-                        details, ref alignedEndCount, ref manualCount);
+                        details, ref alignedEndCount, ref manualCount, ref noCandidateCount);
                 }
 
                 trans.Commit();
@@ -288,9 +289,11 @@ namespace RevitMCP.Core
                 TotalFramingProcessed = framingElements.Count,
                 AlignedEndCount = alignedEndCount,
                 ManualReviewEndCount = manualCount,
+                NoCandidateEndCount = noCandidateCount,
                 Details = details,
                 Message = $"完成 {framingElements.Count} 支結構構架處理：切齊 {alignedEndCount} 個端點，"
-                        + $"{manualCount} 個端點因節點過於繁忙而跳過（需人工確認）。軸線位置未變動。"
+                        + $"{manualCount} 個端點因節點過於繁忙而跳過（需人工確認），"
+                        + $"{noCandidateCount} 個端點找不到相接構材（延伸已歸零）。軸線位置未變動。"
             };
         }
 
@@ -335,15 +338,27 @@ namespace RevitMCP.Core
         /// <summary>
         /// 收集對齊目標，含連結檔 (RVT Links)。
         /// 連結檔不是可選項：支撐用的柱/大梁多半住在連結檔裡，只掃主模型會直接回 0 個候選。
+        ///
+        /// 主模型目標**不以視圖為範圍**。2026-09-17 真模型回歸：呼叫端帶 framingIds 時當前視圖是
+        /// 13FL，樑在 3FL，視圖範圍的 collector 把主模型的相接樑全數漏掉，四根樑的終點都變成
+        /// 「零候選」而延伸留 0；連結檔那一側本來就是整份文件掃，所以只有起點對得到。
+        /// 改為整份文件加 bbox 預濾：以待處理樑 bbox 的聯集外擴 (maxFaceFeet + 1 m) 當 Outline，
+        /// 全視圖模式下也不會退化成 O(n×m)。
         /// </summary>
-        private List<FramingAlignTarget> CollectAlignTargets(Document doc, View targetView, List<BuiltInCategory> cats)
+        private List<FramingAlignTarget> CollectAlignTargets(
+            Document doc, List<BuiltInCategory> cats, List<FamilyInstance> framingElements, double maxFaceFeet)
         {
             var items = new List<FramingAlignTarget>();
 
+            ElementFilter bboxFilter = BuildFramingOutlineFilter(framingElements, maxFaceFeet);
+
             foreach (var cat in cats)
             {
-                foreach (var e in new FilteredElementCollector(doc, targetView.Id)
-                    .OfCategory(cat).WhereElementIsNotElementType().ToElements())
+                var collector = new FilteredElementCollector(doc)
+                    .OfCategory(cat).WhereElementIsNotElementType();
+                if (bboxFilter != null) collector = collector.WherePasses(bboxFilter);
+
+                foreach (var e in collector.ToElements())
                 {
                     items.Add(new FramingAlignTarget { Element = e, Transform = null, IsLink = false });
                 }
@@ -391,7 +406,8 @@ namespace RevitMCP.Core
             bool disallowJoinAtEnds,
             List<object> details,
             ref int alignedEndCount,
-            ref int manualCount)
+            ref int manualCount,
+            ref int noCandidateCount)
         {
             int candidateCount = 0;
             double? bestFaceA = null;
@@ -429,7 +445,20 @@ namespace RevitMCP.Core
                 }
             }
 
-            if (bestFaceA == null) return;
+            if (bestFaceA == null)
+            {
+                // 零候選也要回報：第 1 段已把延伸歸零，靜默 return 會讓「沒對到」跟「對到 0」看起來一樣。
+                noCandidateCount++;
+                details.Add(new
+                {
+                    FramingId = framing.Id.GetIdValue(),
+                    End = endIndex,
+                    Skipped = true,
+                    Reason = "no connected candidate within search window",
+                    CandidateCount = 0
+                });
+                return;
+            }
 
             // 繁忙節點保險：候選過多時「哪個面才是對的」本身就沒有唯一答案，且這種節點的
             // bbox 最容易被 join 污染。寧可不動並回報，不要賭一個看起來合理的值。
@@ -480,6 +509,35 @@ namespace RevitMCP.Core
             {
                 Logger.Error($"[AlignFraming] 設定延伸失敗 (Framing {framing.Id.GetIdValue()} End {endIndex}): {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 待處理樑 bbox 聯集外擴後的 BoundingBoxIntersectsFilter；沒有任何 bbox 時回 null（不過濾）。
+        /// 外擴量 = 沿軸搜尋窗口 + 1 m：橫向 containment 容差只有 ±150 mm，1 m 已經很寬鬆，
+        /// 寧可多撈幾根再讓 EvaluateCandidate 篩，也不要在這層漏掉。
+        /// </summary>
+        private static ElementFilter BuildFramingOutlineFilter(List<FamilyInstance> framingElements, double maxFaceFeet)
+        {
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            bool any = false;
+
+            foreach (var framing in framingElements)
+            {
+                BoundingBoxXYZ bb = framing.get_BoundingBox(null);
+                if (bb == null) continue;
+                any = true;
+                minX = Math.Min(minX, bb.Min.X); minY = Math.Min(minY, bb.Min.Y); minZ = Math.Min(minZ, bb.Min.Z);
+                maxX = Math.Max(maxX, bb.Max.X); maxY = Math.Max(maxY, bb.Max.Y); maxZ = Math.Max(maxZ, bb.Max.Z);
+            }
+
+            if (!any) return null;
+
+            double pad = maxFaceFeet + 1000.0 / FramingAlignGeometry.MM_PER_FOOT;
+            var outline = new Outline(
+                new XYZ(minX - pad, minY - pad, minZ - pad),
+                new XYZ(maxX + pad, maxY + pad, maxZ + pad));
+            return new BoundingBoxIntersectsFilter(outline);
         }
 
         /// <summary>bbox 八角轉世界座標；連結檔套上 link transform。</summary>
