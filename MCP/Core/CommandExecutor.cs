@@ -685,6 +685,10 @@ namespace RevitMCP.Core
                         result = ClearPreviousAnnotations(parameters);
                         break;
 
+                    // === 結構構架自動端點對齊/切齊 ===
+                    case "align_structural_framing":
+                        result = AlignStructuralFraming(parameters);
+                        break;
 
 #if REVIT2024_OR_GREATER
                     case "grade_toposolid_to_floors":

@@ -148,7 +148,7 @@
     "reference/spectrum-decision": { title: "光譜決策框架", desc: "FAIL 之後的 A/B/C/D 四條路線。" },
     "reference/skills-index": { title: "Skills 索引（54）", desc: "編排層：何時觸發 / 什麼順序。" },
     "reference/mep-playbook": { title: "機電教戰手冊", desc: "domain/mep-space-demand-matrix 的教學版，三章 + 配套模型導覽。" },
-    "reference/tools-index": { title: "Tools 索引", desc: "183 個執行層工具，依用途分八類。" },
+    "reference/tools-index": { title: "Tools 索引", desc: "184 個執行層工具，依用途分八類。" },
     "reference/domain-index": { title: "Domain 索引（81）", desc: "知識層：法規 / SOP / lessons。" },
     "reference/deployment-guide": { title: "部署指南", desc: "Nice3point / Release.R{YY} / setup.ps1。" },
     "reference/troubleshooting": { title: "Troubleshooting", desc: "5 經典 + 4 個 5/18 demo 修復。" },
