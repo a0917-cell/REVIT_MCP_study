@@ -12,7 +12,7 @@ export const areaFormulaTools: Tool[] = [
     {
         name: "create_floor_area_formula",
         description:
-            "產出建照送審用的樓板面積計算式文字（矩形 長×寬、三角形 底×高÷2），並可寫成圖面上的 TextNote。來源是使用者已用區域邊界線／房間分隔線切分好的封閉區域，本工具不自行分解多邊形；無法判定為矩形或三角形的區域會列入 Undecomposed 回報而不編入計算式。每一項都會拿「四捨五入後的邊長乘積」與「實際幾何面積」對帳，差異超過容差即列入 Mismatches。",
+            "產出建照送審用的樓板面積計算式文字（矩形 長×寬、三角形 底×高÷2），並可寫成圖面上的 TextNote。來源是使用者已用區域邊界線／房間分隔線切分好的封閉區域，本工具不自行分解多邊形；無法判定為矩形或三角形的區域、以及含內環（開口、管道間、樓梯間等鏤空）的區域，都會列入 Undecomposed 回報而不編入計算式。每一項都會拿「四捨五入後的邊長乘積」與「實際幾何面積」對帳，差異超過容差即列入 Mismatches，且 dryRun=false 時預設會擋下寫入。",
         inputSchema: {
             type: "object",
             properties: {
@@ -85,6 +85,12 @@ export const areaFormulaTools: Tool[] = [
                     type: "boolean",
                     description: "true（預設）＝只回傳算式與對帳結果，不在圖面建立 TextNote。確認對帳全過後再以 false 執行（需同時給 x/y）。",
                     default: true,
+                },
+                allowMismatches: {
+                    type: "boolean",
+                    description:
+                        "false（預設）＝只要有任何一項對帳不符（Mismatches 非空），dryRun=false 就丟例外、不建立 TextNote。確認過那些差異是可接受的才帶 true 強制寫入。",
+                    default: false,
                 },
             },
             required: [],

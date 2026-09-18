@@ -313,22 +313,68 @@ namespace RevitMCP.Core
         }
 
         /// <summary>
-        /// 取出空間元素外環的頂點（mm）。任一段不是直線（弧、雲形線）就回傳 false，
-        /// 呼叫端應列入 Undecomposed —— 弧邊沒有「長×寬」可言。
+        /// 挑出多個邊界環裡的外環：面積(絕對值)最大者。
+        /// 2026-09-18 follow-up：GetBoundarySegments 回傳的 loops[0] **不保證是外環**——
+        /// 一個帶內環（樓梯間、管道間等鏤空）的空間元素，內環有時排在陣列第一個。
+        /// 純函式，只吃已轉成 mm 座標點的環清單，方便離線測試。
         /// </summary>
-        private static bool TryGetOuterLoopPoints(SpatialElement spatial, SpatialElementBoundaryOptions options, out List<double[]> points, out string reason)
+        internal static int SelectOuterLoopIndex(List<List<double[]>> loopPointSets)
+        {
+            int best = 0;
+            double bestArea = double.NegativeInfinity;
+            for (int i = 0; i < loopPointSets.Count; i++)
+            {
+                double area = Math.Abs(PolygonAreaM2(loopPointSets[i]));
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// 取出空間元素外環的頂點（mm），並回報還有幾個內環。任一段不是直線（弧、雲形線）
+        /// 就回傳 false，呼叫端應列入 Undecomposed —— 弧邊沒有「長×寬」可言。
+        /// 內環的線性不檢查：只用它的面積來排除它不是外環，不需要判形狀。
+        /// </summary>
+        private static bool TryGetOuterLoopPoints(SpatialElement spatial, SpatialElementBoundaryOptions options, out List<double[]> points, out int innerLoopCount, out string reason)
         {
             points = new List<double[]>();
+            innerLoopCount = 0;
             reason = null;
 
             IList<IList<BoundarySegment>> loops = spatial.GetBoundarySegments(options);
-            if (loops == null || loops.Count == 0 || loops[0].Count == 0)
+            if (loops == null || loops.Count == 0)
             {
                 reason = "取不到邊界線（未放置或邊界未封閉）。";
                 return false;
             }
 
-            foreach (BoundarySegment segment in loops[0])
+            var loopPointSets = new List<List<double[]>>(loops.Count);
+            foreach (IList<BoundarySegment> loop in loops)
+            {
+                var pts = new List<double[]>(loop.Count);
+                foreach (BoundarySegment segment in loop)
+                {
+                    XYZ start = segment.GetCurve().GetEndPoint(0);
+                    pts.Add(new[] { start.X * FeetToMm, start.Y * FeetToMm });
+                }
+                loopPointSets.Add(pts);
+            }
+
+            int outerIndex = SelectOuterLoopIndex(loopPointSets);
+            innerLoopCount = loopPointSets.Count - 1;
+
+            IList<BoundarySegment> outerSegments = loops[outerIndex];
+            if (outerSegments.Count == 0)
+            {
+                reason = "取不到邊界線（未放置或邊界未封閉）。";
+                return false;
+            }
+
+            foreach (BoundarySegment segment in outerSegments)
             {
                 Curve curve = segment.GetCurve();
                 if (!(curve is Line))
@@ -371,6 +417,9 @@ namespace RevitMCP.Core
             string textTypeName = parameters["textTypeName"]?.Value<string>();
             // 預設 dry-run：這個工具會把算式寫進送審圖，第一次呼叫不該直接落筆。
             bool dryRun = parameters["dryRun"]?.Value<bool?>() ?? true;
+            // 2026-09-18 follow-up：對帳不符時預設不准寫入——以前 Mismatches 只是回報，
+            // dryRun=false 一樣照寫，算式印在圖上但乘積跟幾何對不上，只能等人事後發現。
+            bool allowMismatches = parameters["allowMismatches"]?.Value<bool?>() ?? false;
 
             if (decimals < 0 || decimals > 6)
                 throw new Exception("decimals 必須介於 0 到 6。");
@@ -382,6 +431,9 @@ namespace RevitMCP.Core
             List<IdType> sourceIds = ReadIdArray(parameters, "sourceIds");
             var spatials = new List<SpatialElement>();
             string sourceScope;
+            // 提前宣告：中心點解不出來的元素也要進這裡，不能靜默從 spatials 消失——
+            // 2026-09-18 follow-up，以前是 continue 掉，使用者只能拿 Count 跟自己數的房間數比對才發現少了。
+            var undecomposed = new List<object>();
 
             if (sourceIds != null)
             {
@@ -405,7 +457,16 @@ namespace RevitMCP.Core
                 {
                     double xMm, yMm;
                     if (!TryGetSpatialCenterMm(spatial, out xMm, out yMm))
+                    {
+                        undecomposed.Add(new
+                        {
+                            ElementId = spatial.Id.GetIdValue(),
+                            Name = spatial.Name,
+                            Reason = "取不到中心點（無 LocationPoint 亦無 BoundingBox），無法排序，未列入算式。",
+                            VertexCount = 0
+                        });
                         continue;
+                    }
                     string key = spatial.Id.GetIdValue().ToString(CultureInfo.InvariantCulture);
                     byId[key] = spatial;
                     orderInput.Add(new RoomOrderPoint { Id = key, X = xMm, Y = yMm });
@@ -414,12 +475,11 @@ namespace RevitMCP.Core
                 spatials = ordered.Select(p => byId[p.Id]).ToList();
             }
 
-            if (spatials.Count == 0)
+            if (spatials.Count == 0 && undecomposed.Count == 0)
                 throw new Exception($"在視圖「{view.Name}」找不到可用的 Area 或 Room（收集範圍：{sourceScope}）。請先放置區域／房間，或用 sourceIds 明確指定。");
 
             // 2. 逐區判形、組算式、對帳
             var items = new List<object>();
-            var undecomposed = new List<object>();
             var mismatches = new List<object>();
             var formulaLines = new List<string>();
             string fmt = "F" + decimals.ToString(CultureInfo.InvariantCulture);
@@ -432,10 +492,25 @@ namespace RevitMCP.Core
                 string name = spatial.Name;
 
                 List<double[]> rawPoints;
+                int innerLoopCount;
                 string reason;
-                if (!TryGetOuterLoopPoints(spatial, boundaryOptions, out rawPoints, out reason))
+                if (!TryGetOuterLoopPoints(spatial, boundaryOptions, out rawPoints, out innerLoopCount, out reason))
                 {
                     undecomposed.Add(new { ElementId = elementId, Name = name, Reason = reason, VertexCount = 0 });
+                    continue;
+                }
+
+                if (innerLoopCount > 0)
+                {
+                    // 2026-09-18 follow-up：有內環（樓梯間、管道間等鏤空）就不產生算式——即使外環化簡後
+                    // 剛好是矩形，「長×寬」印在圖上也會蓋掉那個鏤空的存在，算式跟圖面對不上。
+                    undecomposed.Add(new
+                    {
+                        ElementId = elementId,
+                        Name = name,
+                        Reason = $"邊界含 {innerLoopCount} 個內環（開口、管道間、樓梯間等鏤空），本工具不處理鏤空區域的算式，請先用區域邊界線把內環切開再分別產生算式。",
+                        VertexCount = rawPoints.Count
+                    });
                     continue;
                 }
 
@@ -458,6 +533,13 @@ namespace RevitMCP.Core
                 double formulaAreaM2;
                 BuildFormulaTerm(shape.Shape, shape.DimensionsM, decimals, out expression, out formulaAreaM2);
 
+                // 2026-09-18 follow-up 曾考慮改用 spatial.Area 當對帳基準（review 建議），
+                // 實測 D1_B1FL 真房間後撤回：Room.Area 由專案「面積及體積計算」設定決定
+                // （通常算到牆面/牆心層），跟這裡 boundaryOptions 選的 boundaryLocation（送照
+                // 慣例算到牆心）本來就是兩種不同慣例、系統性不同——實測某房間 Room.Area=1.67㎡
+                // 對上我們的牆心面積 2.03㎡，差 0.36㎡，改用 spatial.Area 會讓全部房間變假
+                // Mismatch。維持用 PolygonAreaM2(simplified)：現在讀的已經是 SelectOuterLoopIndex
+                // 選對的外環，不是無條件的 loops[0]，這才是這次要修的部分。
                 double geometricAreaM2 = PolygonAreaM2(simplified);
                 double delta = Math.Abs(formulaAreaM2 - geometricAreaM2);
 
@@ -514,6 +596,8 @@ namespace RevitMCP.Core
             {
                 if (items.Count == 0)
                     throw new Exception("沒有任何區域能化為算式，未建立 TextNote。請先看 Undecomposed 的原因並切分區域。");
+                if (mismatches.Count > 0 && !allowMismatches)
+                    throw new Exception($"{mismatches.Count} 項對帳不符（算式乘積跟幾何面積差異超過容差），未建立 TextNote。請先看 Mismatches 確認是否真的是矩形／三角形；確定要照樣寫入就帶 allowMismatches: true。");
 
                 double? x = parameters["x"]?.Value<double?>();
                 double? y = parameters["y"]?.Value<double?>();
@@ -568,6 +652,7 @@ namespace RevitMCP.Core
                 Undecomposed = undecomposed,
                 Mismatches = mismatches,
                 DryRun = dryRun,
+                AllowMismatches = allowMismatches,
                 Written = written,
                 TextNoteId = textNoteId,
                 TextNoteTypeName = usedTextTypeName,

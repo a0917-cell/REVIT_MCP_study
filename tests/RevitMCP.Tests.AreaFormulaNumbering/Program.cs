@@ -57,6 +57,7 @@ namespace RevitMCP.Tests.AreaFormulaNumbering
 
             SimplifyPolygonChecks();
             PolygonAreaChecks();
+            SelectOuterLoopChecks();
             ClassifyPolygonChecks();
             FormulaTermChecks();
             NumberSequenceChecks();
@@ -175,6 +176,29 @@ namespace RevitMCP.Tests.AreaFormulaNumbering
 
             var lShape = Pts(0, 0, 10000, 0, 10000, 4000, 5000, 4000, 5000, 8000, 0, 8000);
             CheckClose("L-shape = 60 m2", 60.0, (double)Invoke("PolygonAreaM2", lShape), 1e-9);
+            Console.WriteLine();
+        }
+
+        // ---------- SelectOuterLoopIndex ----------
+
+        private static void SelectOuterLoopChecks()
+        {
+            Console.WriteLine("SelectOuterLoopIndex (含內環的空間元素挑外環，不假設 loops[0] 就是外環)");
+
+            // 2026-09-18 follow-up：Revit 的 GetBoundarySegments 回傳的第一個環不保證是外環——
+            // 一個帶內環（樓梯間、管道間）的房間，內環有時排在 loops[0]。用面積最大者當外環，
+            // 而不是永遠信第一個。
+            var outer = Pts(0, 0, 10000, 0, 10000, 8000, 0, 8000); // 80 m2
+            var inner = Pts(2000, 2000, 3000, 2000, 3000, 3000, 2000, 3000); // 1 m2
+
+            var innerFirst = new List<List<double[]>> { inner, outer };
+            Check("內環排第一個時仍選到面積較大的外環", 1, (int)Invoke("SelectOuterLoopIndex", innerFirst));
+
+            var outerFirst = new List<List<double[]>> { outer, inner };
+            Check("外環本來就排第一個", 0, (int)Invoke("SelectOuterLoopIndex", outerFirst));
+
+            var single = new List<List<double[]>> { outer };
+            Check("只有一個環（沒有內環）", 0, (int)Invoke("SelectOuterLoopIndex", single));
             Console.WriteLine();
         }
 
