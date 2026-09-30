@@ -139,8 +139,6 @@ docs/fork-audit/
 /vault/
 /.obsidian/
 
-# Added by code-review-graph
-.code-review-graph/
 
 # 本機 AI client 工具產生的工作檔（非 repo 內容）
 # 已知來源：使用者端安裝的 OpenAI Codex 桌面 app 會掃描專案，
