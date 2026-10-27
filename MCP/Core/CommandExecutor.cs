@@ -176,6 +176,10 @@ namespace RevitMCP.Core
                         result = GetElementInfo(parameters);
                         break;
 
+                    case "delete_question_mark_tags":
+                        result = DeleteQuestionMarkTags(parameters);
+                        break;
+
                     case "get_door_window_coordinates":
                         result = GetDoorWindowCoordinates(parameters);
                         break;
